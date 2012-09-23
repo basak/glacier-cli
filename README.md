@@ -15,7 +15,7 @@ glacier-cli uses Amazon Glacier's archive description field to keep friendly
 archive names, although you can also address archives directly by using their
 IDs. It keeps a local cache of archive IDs and their corresponding names, as
 well as housekeeping data to keep the cache up-to-date. This will save you time
-because you won't have to wait spend hours retrieve inventories all the time,
+because you won't have to wait spend hours retrieving inventories all the time,
 and will save you mental effort because you won't have to keep track of the
 obtuse archive IDs yourself.
 
@@ -145,8 +145,8 @@ or for just yourself, if you have `~/bin` in your path:
 Integration with git-annex
 --------------------------
 
-Using glacier-cli via git-annex is the easiest way to use Amazon Glacier from
-the CLI.
+Using glacier-cli via [git-annex][git-annex] is the easiest way to use Amazon
+Glacier from the CLI.
 
 git-annex integration is currently experimental and uses git-annex's [special
 remote hooks](http://git-annex.branchable.com/special_remotes/hook/).
@@ -158,7 +158,7 @@ this simpler soon.
 
 Older versions of git-annex call the hooks without passing through HOME or
 PATH, making it difficult to find my working copy of glacier-cli or my Amazon
-keys. This includes the version of git annex included with Ubuntu 12.04. I had
+keys. This includes the version of git-annex included with Ubuntu 12.04. I had
 to write a wrapper that exports `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
 and then calls `glacier` with `exec /path/to/glacier "$@"`. With newer versions
 of git-annex (Debian wheezy and the soon-to-be-released Ubuntu 12.10), you
