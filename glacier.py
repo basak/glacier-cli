@@ -188,7 +188,7 @@ class Cache(object):
         except sqlalchemy.orm.exc.NoResultFound:
             self.session.add(self.Archive(key=self.key, vault=vault,
                     name=name, id=id,
-                    last_seen_upstream=upstream_inventory_date))
+                    last_seen_upstream=time.time()))
         else:
             if not archive.name:
                 archive.name = name
