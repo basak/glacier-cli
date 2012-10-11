@@ -188,7 +188,7 @@ class Cache(object):
         except sqlalchemy.orm.exc.NoResultFound:
             self.session.add(self.Archive(key=self.key, vault=vault,
                     name=name, id=id,
-                    last_seen_upstream=time.time()))
+                    last_seen_upstream=upstream_inventory_date))
         else:
             if not archive.name:
                 archive.name = name
@@ -345,7 +345,7 @@ class App(object):
 
     def _vault_sync_reconcile(self, vault, job, fix=False):
         response = job.get_output()
-        inventory_date = iso8601_to_unix_timestamp(response['InventoryDate'])
+        inventory_date = iso8601_to_unix_timestamp(job.completion_date)
         seen_ids = []
         for archive in response['ArchiveList']:
             id = archive['ArchiveId']
