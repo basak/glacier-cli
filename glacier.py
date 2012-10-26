@@ -25,6 +25,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import argparse
+import binascii
 import calendar
 import errno
 import os
@@ -33,6 +34,7 @@ import sys
 import time
 
 import boto.glacier
+import boto.glacier.exceptions
 import iso8601
 import sqlalchemy
 import sqlalchemy.ext.declarative
@@ -48,6 +50,23 @@ import sqlalchemy.orm
 INVENTORY_LAG = 24 * 60 * 60 * 3
 
 PROGRAM_NAME = 'glacier'
+
+# Unfortunately Glacier doesn't support empty files, yet at the same time git
+# annex will happily try to upload one. So instead we make special fake
+# archive_id's and handle such id's specially on upload, retrieval, and
+# deletion.
+
+def mk_empty_archive_id():
+    # Uploaded archives are expected to have a different archive_id each time,
+    # so append some random hex bytes at the end.
+    #
+    # The size is calculated so the total id length is the 138 bytes that
+    # normal glacier ids are.
+    return b'EMPTY_ARCHIVE_' + binascii.hexlify(os.urandom(62))
+
+def is_empty_archive_id(archive_id):
+    return archive_id.startswith(b'EMPTY_ARCHIVE_')
+
 
 class ConsoleError(RuntimeError):
     def __init__(self, m):
@@ -413,7 +432,14 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+
+        try:
+            archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+        except boto.glacier.exceptions.EmptyArchiveError as err:
+            if args.allow_empty_archives:
+                archive_id = mk_empty_archive_id()
+            else:
+                raise err
         self.cache.add_archive(args.vault, name, archive_id)
 
     @staticmethod
@@ -438,19 +464,28 @@ class App(object):
         f.truncate(job.archive_size)
 
     @classmethod
-    def _archive_retrieve_completed(cls, args, job, name):
+    def _archive_retrieve_completed(cls, args, job, name, fake_empty_archive=False):
         if args.output_filename:
             filename = args.output_filename
         else:
             filename = os.path.basename(name)
         with open(filename, 'wb') as f:
-            cls._write_archive_retrieval_job(f, job, args.multipart_size)
+            if args.allow_empty_archives and fake_empty_archive:
+                # Empty archive special case, do nothing, open has made an
+                # empty file for us.
+                pass
+            else:
+                cls._write_archive_retrieval_job(f, job, args.multipart_size)
 
     def archive_retrieve_one(self, args, name):
         try:
             archive_id = self.cache.get_archive_id(args.vault, name)
         except KeyError:
             raise ConsoleError('archive %r not found' % name)
+
+        if args.allow_empty_archives and is_empty_archive_id(archive_id):
+            self._archive_retrieve_completed(args,None,name,fake_empty_archive=True)
+            return
 
         vault = self.connection.get_vault(args.vault)
         retrieval_jobs = find_retrieval_jobs(vault, archive_id)
@@ -495,7 +530,13 @@ class App(object):
         except KeyError:
             raise ConsoleError('archive %r not found' % args.name)
         vault = self.connection.get_vault(args.vault)
-        vault.delete_archive(archive_id)
+
+        if args.allow_empty_archives and is_empty_archive_id(archive_id):
+            # Empty archive, just pretend to delete it
+            pass
+        else:
+            vault.delete_archive(archive_id)
+
         self.cache.delete_archive(args.vault, args.name)
 
     def archive_checkpresent(self, args):
@@ -546,6 +587,8 @@ class App(object):
     def main(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default='us-east-1')
+        parser.add_argument('--allow-empty-archives', action='store_true', default=False,
+                            dest='allow_empty_archives')
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
