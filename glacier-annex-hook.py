@@ -27,8 +27,9 @@ from __future__ import unicode_literals
 import sys
 import os
 
+
 def print_usage():
-    sys.exit(\
+    sys.exit(
 """\
 Usage: %s <path-to-glacier-cli> <vault-name> <hook-type> <hook-args>)
 
@@ -39,12 +40,12 @@ try:
 except ValueError:
     print_usage()
 
-if action in ('store','retrieve'):
+if action in ('store', 'retrieve'):
     try:
         (annex_key, annex_file) = sys.argv[4:]
     except ValueError:
         print_usage()
-elif action in ('remove','checkpresent'):
+elif action in ('remove', 'checkpresent'):
     try:
         (annex_key,) = sys.argv[4:]
     except ValueError:
@@ -72,29 +73,44 @@ if key_is_empty is None:
 
 if action == 'store':
     if key_is_empty:
-        sys.exit() # storing an empty key is always a success
+        sys.exit()  # storing an empty key is always a success
     else:
-        os.execv(glacier_cli_path, (
-            glacier_cli_path, 'archive', 'upload', '--name=%s' % annex_key, vault_name, annex_file))
+        os.execv(
+            glacier_cli_path,
+            [glacier_cli_path, 'archive', 'upload', '--name=%s' % annex_key,
+             vault_name, annex_file
+            ])
 elif action == 'retrieve':
     if key_is_empty:
         # Create the empty file ourselves
-        open(annex_file,'w').close()
+        open(annex_file, 'w').close()
         sys.exit()
     else:
-        os.execv(glacier_cli_path, (glacier_cli_path, 'archive', 'retrieve', '-o', annex_file, vault_name, annex_key))
+        os.execv(
+            glacier_cli_path,
+            [glacier_cli_path, 'archive', 'retrieve', '-o', annex_file,
+             vault_name, annex_key
+            ])
 elif action == 'remove':
     if key_is_empty:
-        sys.exit() # removal "works", although does nothing
+        sys.exit()  # removal "works", although does nothing
     else:
-        os.execv(glacier_cli_path, (glacier_cli_path, 'archive', 'delete', vault_name, annex_key))
+        os.execv(
+            glacier_cli_path,
+            [glacier_cli_path, 'archive', 'delete', vault_name, annex_key]
+            )
 elif action == 'checkpresent':
     if key_is_empty:
         # The empty key is always present.
         print(annex_key)
         sys.exit()
     else:
-        os.execv(glacier_cli_path, (glacier_cli_path, 'archive', 'checkpresent', '--quiet', vault_name, annex_key))
+        os.execv(
+            glacier_cli_path,
+            [glacier_cli_path, 'archive', 'checkpresent', '--quiet',
+             vault_name, annex_key
+            ])
 else:
-    # Action already checked for every case above; shouldn't be possible to get here.
+    # Action already checked for every case above; shouldn't be possible to get
+    # here.
     assert False
