@@ -33,7 +33,7 @@ def print_usage():
 """\
 Usage: %s <path-to-glacier-cli> <vault-name> <hook-type> <hook-args>)
 
-See glacier-cli README for more information.""")
+See glacier-cli README for more information.""" % sys.argv[0])
 
 try:
     (glacier_cli_path, vault_name, action) = sys.argv[1:4]
