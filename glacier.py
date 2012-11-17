@@ -167,9 +167,13 @@ class Cache(object):
         self.session.commit()
 
     @staticmethod
-    def _archive_ref(archive):
-        if archive.name:
-            return archive.name
+    def _archive_ref(archive, force_id=False):
+        if archive.name and not force_id:
+            if (archive.name.startswith('name:') or
+                    archive.name.startswith('id:')):
+                return "name:%s" % archive.name
+            else:
+                return archive.name
         else:
             return 'id:' + archive.id
 
