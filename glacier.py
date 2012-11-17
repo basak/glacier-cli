@@ -27,6 +27,7 @@ from __future__ import unicode_literals
 import argparse
 import calendar
 import errno
+import itertools
 import os
 import os.path
 import sys
@@ -177,12 +178,38 @@ class Cache(object):
         else:
             return 'id:' + archive.id
 
+    def _get_archive_list_objects(self, vault):
+        for archive in (
+                self.session.query(self.Archive).
+                             filter_by(key=self.key,
+                                       vault=vault,
+                                       deleted_here=None).
+                             order_by(self.Archive.name)):
+            yield archive
+
     def get_archive_list(self, vault):
-        for archive in (self.session.query(self.Archive)
-                                    .filter_by(key=self.key,
-                                               vault=vault,
-                                               deleted_here=None)):
-            yield self._archive_ref(archive)
+        def force_id(archive):
+            return "\t".join([
+                self._archive_ref(archive, force_id=True),
+                "(%s)" % archive.name
+                ])
+
+        for archive_name, archive_iterator in (
+                itertools.groupby(
+                    self._get_archive_list_objects(vault),
+                    lambda archive: archive.name)):
+            # Yield self._archive_ref(..., force_id=True) if there is more than
+            # one archive with the same name; otherwise use force_id=False.
+            first_archive = next(archive_iterator)
+            try:
+                second_archive = next(archive_iterator)
+            except StopIteration:
+                yield self._archive_ref(first_archive, force_id=False)
+            else:
+                yield force_id(first_archive)
+                yield force_id(second_archive)
+                for subsequent_archive in archive_iterator:
+                    yield force_id(subsequent_archive)
 
     def mark_seen_upstream(self, vault, id, name, upstream_creation_date,
                            upstream_inventory_date, fix=False):
