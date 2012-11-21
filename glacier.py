@@ -191,7 +191,7 @@ class Cache(object):
         def force_id(archive):
             return "\t".join([
                 self._archive_ref(archive, force_id=True),
-                "(%s)" % archive.name
+                "%s" % archive.name
                 ])
 
         for archive_name, archive_iterator in (
