@@ -291,6 +291,17 @@ To avoid ambiguity, prefixing a reference with `name:` works as you would
 expect. If you end up with archive names or IDs that start with `name:` or
 `id:`, then you must use a prefix to disambiguate.
 
+Using Pipes
+-----------
+
+Use `glacier archive upload <vault> --name=<name> - ` to upload data from
+standard input. In this case you must use `--name` to name your archive
+correctly.
+
+Use `glacier archive retrieve <vault> <name> -o-` to download data to standard
+output. glacier-cli will not output any data to standard output apart from the
+archive data in order to prevent corrupting the output data stream.
+
 Future Directions
 -----------------
 

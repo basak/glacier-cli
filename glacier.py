@@ -466,16 +466,26 @@ class App(object):
 
         # Make sure that the file now exactly matches the downloaded archive,
         # even if the file existed before and was longer.
-        f.truncate(job.archive_size)
+        try:
+            f.truncate(job.archive_size)
+        except IOError, e:
+            # Allow ESPIPE, since the "file" couldn't have existed before in
+            # this case.
+            if e.errno != errno.ESPIPE:
+                raise
 
     @classmethod
     def _archive_retrieve_completed(cls, args, job, name):
-        if args.output_filename:
-            filename = args.output_filename
+        if args.output_filename == '-':
+            cls._write_archive_retrieval_job(
+                sys.stdout, job, args.multipart_size)
         else:
-            filename = os.path.basename(name)
-        with open(filename, 'wb') as f:
-            cls._write_archive_retrieval_job(f, job, args.multipart_size)
+            if args.output_filename:
+                filename = args.output_filename
+            else:
+                filename = os.path.basename(name)
+            with open(filename, 'wb') as f:
+                cls._write_archive_retrieval_job(f, job, args.multipart_size)
 
     def archive_retrieve_one(self, args, name):
         try:
