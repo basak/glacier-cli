@@ -117,22 +117,7 @@ expect](http://www.daemonology.net/blog/2012-09-04-thoughts-on-glacier-pricing.h
 
 Installation
 ------------
-Check out the [glacier branch of boto][glacier branch of boto] from Github
-(this branch is not released yet and is still under heavy development).
-
-Create a symlink `boto` in the same directory as `glacier.py` to point to the
-`boto` directory in the glacier branch. Then you can run `glacier.py` directly,
-or symlink `/usr/local/bin/glacier` to it to make it generally available.
-
-I'll package this up properly when boto's glacier support is released.
-
-[glacier branch of boto]: https://github.com/boto/boto/tree/glacier
-
-### Example
-
-    git clone -b glacier git://github.com/boto/boto.git
-    git clone git://github.com/basak/glacier-cli.git
-    ln -s ../boto/boto glacier-cli/boto
+Install https://github.com/boto/boto in version 2.6.0 or higher.
 
 Then either, for all users:
 
