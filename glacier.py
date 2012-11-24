@@ -477,9 +477,9 @@ class App(object):
             archive_list = list(self.cache.get_archive_list(self.args.vault))
 
         if archive_list:
-            if args.convert_utf8:
+            if self.args.transcode_names:
               for i in archive_list:
-               print(i.encode('utf-8'))
+               print(i.encode(self.args.transcode_names))
             else:
                print(*archive_list, sep="\n")
 
@@ -498,8 +498,8 @@ class App(object):
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
 
-        if not isinstance(name, unicode) and arg.convert_utf8:
-            name = name.decode('utf-8')
+        if not isinstance(name, unicode) and self.args.transcode_names:
+            name = name.decode(self.args.transcode_names)
         vault = self.connection.get_vault(self.args.vault)
         archive_id = vault.create_archive_from_file(
             file_obj=self.args.file, description=name)
@@ -578,8 +578,8 @@ class App(object):
         success_list = []
         retry_list = []
         for name in self.args.names:
-            if args.convert_utf8:
-                name = name.decode('utf-8')
+            if self.args.transcode_names:
+                name = name.decode(self.args.transcode_names)
             try:
                 self.archive_retrieve_one(name)
             except RetryConsoleError, e:
@@ -593,8 +593,8 @@ class App(object):
     def archive_delete(self):
         try:
             name = self.args.name
-            if args.convert_utf8:
-                name = name.decode('utf-8')
+            if self.args.transcode_names:
+                name = name.decode(self.args.transcode_names)
             archive_id = self.cache.get_archive_id(
                 self.args.vault, name)
         except KeyError:
@@ -656,8 +656,8 @@ class App(object):
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default='us-east-1')
-        parser.add_argument('--convert-utf8', action='store_true',
-            help='encode name to UTF-8 before sending to Amazon, and decode from UTF-8 when retrieving')
+        parser.add_argument('--transcode-names', metavar='CODEC',
+            help='encode name to CODEC before sending to Amazon, and decode from CODEC when retrieving')
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
