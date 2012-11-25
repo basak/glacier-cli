@@ -376,7 +376,7 @@ class App(object):
 
     def _vault_sync_reconcile(self, vault, job, fix=False):
         response = job.get_output()
-        inventory_date = iso8601_to_unix_timestamp(response['InventoryDate'])
+        inventory_date = iso8601_to_unix_timestamp(job.completion_date)
         seen_ids = []
         for archive in response['ArchiveList']:
             id = archive['ArchiveId']
