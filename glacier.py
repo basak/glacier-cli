@@ -211,15 +211,48 @@ class Cache(object):
                 for subsequent_archive in archive_iterator:
                     yield force_id(subsequent_archive)
 
-    def mark_seen_upstream(self, vault, id, name, upstream_creation_date,
-                           upstream_inventory_date, fix=False):
+    def mark_seen_upstream(
+            self, vault, id, name, upstream_creation_date,
+            upstream_inventory_date, upstream_inventory_job_creation_date,
+            fix=False):
+
+        # Inventories don't get recreated unless the vault has changed.
+        # See: https://forums.aws.amazon.com/thread.jspa?threadID=106541
+        #
+        # The cache's last_seen_upstream is supposed to contain a point in time
+        # at which we know for sure that an archive existed, but this can fall
+        # too far behind if a vault doesn't change. So assume that an archive
+        # that appears in an inventory that hasn't been updated recently
+        # nevertheless existed at around the time the inventory _could_ have
+        # been regenerated, ie. at some point prior to the date that we
+        # requested the inventory retrieval job.
+        #
+        # This is preferred over using the job completion date as an archive
+        # could in theory be deleted while an inventory job is in progress and
+        # would still appear in that inventory.
+        #
+        # Making up a date prior to the inventory job's creation could mean
+        # that last_seen_upstream ends up claiming that an archive existed even
+        # before it was created, but this will not cause a problem. Better that
+        # it's too far back in time than too far ahead.
+        #
+        # With thanks to Wolfgang Nagele.
+
+        last_seen_upstream = max(
+            upstream_inventory_date,
+            upstream_inventory_job_creation_date - INVENTORY_LAG
+            )
+
         try:
             archive = self.session.query(self.Archive).filter_by(
                 key=self.key, vault=vault, id=id).one()
         except sqlalchemy.orm.exc.NoResultFound:
-            self.session.add(self.Archive(key=self.key, vault=vault,
-                    name=name, id=id,
-                    last_seen_upstream=upstream_inventory_date))
+            self.session.add(
+                self.Archive(
+                    key=self.key, vault=vault, name=name, id=id,
+                    last_seen_upstream=last_seen_upstream
+                    )
+                )
         else:
             if not archive.name:
                 archive.name = name
@@ -239,7 +272,7 @@ class Cache(object):
                 else:
                     warn('archive %r deletion not yet in inventory' %
                          archive_ref)
-            archive.last_seen_upstream = upstream_inventory_date
+            archive.last_seen_upstream = last_seen_upstream
 
     def mark_only_seen(self, vault, inventory_date, ids, fix=False):
         upstream_ids = set(ids)
@@ -377,18 +410,20 @@ class App(object):
     def _vault_sync_reconcile(self, vault, job, fix=False):
         response = job.get_output()
         inventory_date = iso8601_to_unix_timestamp(response['InventoryDate'])
+        job_creation_date = iso8601_to_unix_timestamp(job.creation_date)
         seen_ids = []
         for archive in response['ArchiveList']:
             id = archive['ArchiveId']
             name = archive['ArchiveDescription']
             creation_date = iso8601_to_unix_timestamp(archive['CreationDate'])
             self.cache.mark_seen_upstream(
-                    vault=vault.name,
-                    id=id,
-                    name=name,
-                    upstream_creation_date=creation_date,
-                    upstream_inventory_date=inventory_date,
-                    fix=fix)
+                vault=vault.name,
+                id=id,
+                name=name,
+                upstream_creation_date=creation_date,
+                upstream_inventory_date=inventory_date,
+                upstream_inventory_job_creation_date=job_creation_date,
+                fix=fix)
             seen_ids.append(id)
         self.cache.mark_only_seen(vault.name, inventory_date, seen_ids,
                                   fix=fix)
@@ -635,7 +670,7 @@ class App(object):
         archive_checkpresent_subparser.add_argument('--quiet',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument(
-                '--max-age', type=int, default=60, dest='max_age_hours')
+                '--max-age', type=int, default=80, dest='max_age_hours')
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
         args = parser.parse_args()
