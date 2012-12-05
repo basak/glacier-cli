@@ -477,10 +477,14 @@ class App(object):
             except:
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
-
-        vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
-        self.cache.add_archive(args.vault, name, archive_id)
+        try:
+            check_archive_id = self.cache.get_archive_id(args.vault, name)
+        except KeyError:
+            vault = self.connection.get_vault(args.vault)
+            archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+            self.cache.add_archive(args.vault, name, archive_id)
+        else:
+            raise RuntimeError('Archive seems to be present in glaicer. Not uploading')
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
