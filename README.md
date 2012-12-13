@@ -156,29 +156,41 @@ remote hooks](http://git-annex.branchable.com/special_remotes/hook/).
 I regret that initial setup is is a bit complicated right now. I hope to make
 this simpler soon.
 
+Amazon Glacier does not support zero-length archives; the minimum archive size
+is 1 byte. Unfortunately git-annex stores zero length files in the backend if
+requested thus the special-remote hooks need to deal with this case.
+Fortunately git-annex keys include the file size in the key, so a wrapper
+script, glacier-annex-hook.py, has been provided to use which handles
+zero-length files as a special case. They are not actually uploaded to Glacier,
+and equally are considered to always have been uploaded, and thus their
+retrieval will always succeed. Deletion is a no-op.
+
+With a newer version of git-annex you can use hooks like the following:
+
+    glacier-store-hook = glacier-annex-hook /path/to/glacier.py vault-name store \"$ANNEX_KEY\" \"$ANNEX_FILE\"
+    glacier-retrieve-hook = glacier-annex-hook /path/to/glacier.py vault-name retrieve \"$ANNEX_KEY\" \"$ANNEX_FILE\"
+    glacier-remove-hook = glacier-annex-hook /path/to/glacier.py vault-name remove \"$ANNEX_KEY\"
+    glacier-checkpresent-hook = glacier-annex-hook /path/to/glacier.py vault-name checkpresent \"$ANNEX_KEY\"
+
 Older versions of git-annex call the hooks without passing through HOME or
-PATH, making it difficult to find my working copy of glacier-cli or my Amazon
-keys. This includes the version of git-annex included with Ubuntu 12.04. I had
-to write a wrapper that exports `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
-and then calls `glacier` with `exec /path/to/glacier "$@"`. With newer versions
-of git-annex (Debian wheezy and the soon-to-be-released Ubuntu 12.10), you
-should be able to configure the hooks to directly call glacier without a
-wrapper and without having to use absolute paths.
+PATH, making it difficult to find my working copy of glacier-annex-hook or my
+Amazon keys. This includes the version of git-annex included with Ubuntu 12.04.
+I had to write a wrapper that exports `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` and then calls `glacier-annex-hook` with `exec
+/path/to/glacier-annex-hook "$@"`. With newer versions of git-annex (Debian
+wheezy and recently-released Ubuntu 12.10), you should be able to configure the
+hooks to directly call glacier without a wrapper and without having to use
+absolute paths. If you need to do this replace glacier-annex-hook above with
+/path/to/glacier-annex-hook.py In either case the hook script needs to be given
+the full path to glacier.py; PATH is not used. This will change in the future
+pending proper distribution packaging.
 
-So my hooks look like this:
-
-    glacier-store-hook = /path/to/glacier-wrapper archive upload --name=\"$ANNEX_KEY\" vault-name \"$ANNEX_FILE\"
-    glacier-retrieve-hook = /path/to/glacier-wrapper archive retrieve -o \"$ANNEX_FILE\" vault-name \"$ANNEX_KEY\"
-    glacier-remove-hook = /path/to/glacier-wrapper archive delete vault-name \"$ANNEX_KEY\"
-    glacier-checkpresent-hook = /path/to/glacier-wrapper archive checkpresent vault-name --quiet \"$ANNEX_KEY\"
-
-and I expect users of newer versions of git-annex to be able to use hooks that
-looks like this:
-
-    glacier-store-hook = glacier archive upload --name=\"$ANNEX_KEY\" vault-name \"$ANNEX_FILE\"
-    glacier-retrieve-hook = glacier archive retrieve -o \"$ANNEX_FILE\" vault-name \"$ANNEX_KEY\"
-    glacier-remove-hook = glacier archive delete vault-name \"$ANNEX_KEY\"
-    glacier-checkpresent-hook = glacier archive checkpresent vault-name --quiet \"$ANNEX_KEY\"
+One final wrinkle is that annexes created prior to git-annex version 0.20110316
+may use the "v1" repository layout. It did not include the file size in
+repository keys, so if you happen to have zero-length files you'll find the
+above hook wrapper still fails. In this case use the git annex migrate command
+to migrate the keys in your repository to v2 or later format. (you may need to
+run git annex upgrade first)
 
 To add the glacier remote:
 
