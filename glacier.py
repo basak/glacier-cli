@@ -49,6 +49,8 @@ import sqlalchemy.orm
 INVENTORY_LAG = 24 * 60 * 60 * 3
 
 PROGRAM_NAME = 'glacier'
+DEFAULT_PART_SIZE = 4194304
+
 
 class ConsoleError(RuntimeError):
     def __init__(self, m):
@@ -463,7 +465,7 @@ class App(object):
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self, args):
+    def archive_upload(self, args, multipart=False):
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
@@ -473,14 +475,24 @@ class App(object):
             name = args.name
         else:
             try:
-                full_name = args.file.name
+                full_name = args.file
             except:
-                raise RuntimeError('Archive name not specified. Use --name')
+                raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+
+        if not multipart:
+            archive_id = vault.create_archive_from_file(
+                filename=args.file, description=name)
+        else:
+            archive_id = vault.concurrent_create_archive_from_file(
+                filename=args.file, description=name)
+
         self.cache.add_archive(args.vault, name, archive_id)
+
+    def multipart_archive_upload(self, args):
+        return self.archive_upload(args, multipart=True)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
@@ -639,12 +651,28 @@ class App(object):
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
         archive_list_subparser.add_argument('vault')
+
+        # Upload command
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file',
-                                              type=argparse.FileType('rb'))
+        archive_upload_subparser.add_argument('file')
         archive_upload_subparser.add_argument('--name')
+
+        # Multipart upload command
+        archive_multipart_upload_subparser = archive_subparser.add_parser(
+            'multipart_upload')
+        archive_multipart_upload_subparser.set_defaults(
+            func=self.multipart_archive_upload)
+        archive_multipart_upload_subparser.add_argument('vault')
+        archive_multipart_upload_subparser.add_argument('file')
+        archive_multipart_upload_subparser.add_argument('--name')
+        archive_multipart_upload_subparser.add_argument(
+            '--part-size',
+            default=DEFAULT_PART_SIZE,
+            dest="part_size"
+        )
+
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
         archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
         archive_retrieve_subparser.add_argument('vault')
