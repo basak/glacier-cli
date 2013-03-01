@@ -33,6 +33,7 @@ import os.path
 import sys
 import time
 
+from boto.glacier.utils import DEFAULT_PART_SIZE
 import boto.glacier
 import iso8601
 import sqlalchemy
@@ -49,7 +50,6 @@ import sqlalchemy.orm
 INVENTORY_LAG = 24 * 60 * 60 * 3
 
 PROGRAM_NAME = 'glacier'
-DEFAULT_PART_SIZE = 4194304
 
 
 class ConsoleError(RuntimeError):
@@ -57,7 +57,8 @@ class ConsoleError(RuntimeError):
         self.message = m
 
 
-class RetryConsoleError(ConsoleError): pass
+class RetryConsoleError(ConsoleError):
+    pass
 
 
 def info(message):
