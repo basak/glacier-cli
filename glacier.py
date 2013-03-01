@@ -33,6 +33,7 @@ import os.path
 import sys
 import time
 
+from boto.glacier.utils import DEFAULT_NUM_THREADS
 from boto.glacier.utils import DEFAULT_PART_SIZE
 import boto.glacier
 import iso8601
@@ -466,7 +467,9 @@ class App(object):
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self, args, multipart=False):
+    def archive_upload(self, args, multipart=False,
+                       part_size=DEFAULT_PART_SIZE,
+                       num_threads=DEFAULT_NUM_THREADS):
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
@@ -488,7 +491,8 @@ class App(object):
                 filename=args.file, description=name)
         else:
             archive_id = vault.concurrent_create_archive_from_file(
-                filename=args.file, description=name)
+                filename=args.file, description=name,
+                part_size=part_size, num_threads=num_threads)
 
         self.cache.add_archive(args.vault, name, archive_id)
 
@@ -672,6 +676,11 @@ class App(object):
             '--part-size',
             default=DEFAULT_PART_SIZE,
             dest="part_size"
+        )
+        archive_multipart_upload_subparser.add_argument(
+            '--num-threads',
+            default=DEFAULT_NUM_THREADS,
+            dest="num_threads"
         )
 
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
