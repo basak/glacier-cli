@@ -34,7 +34,7 @@ import sys
 import time
 
 from boto.glacier.utils import DEFAULT_NUM_THREADS
-from boto.glacier.utils import DEFAULT_PART_SIZE
+from boto.glacier.concurrent import ConcurrentUploader
 import boto.glacier
 import iso8601
 import sqlalchemy
@@ -51,6 +51,8 @@ import sqlalchemy.orm
 INVENTORY_LAG = 24 * 60 * 60 * 3
 
 PROGRAM_NAME = 'glacier'
+
+DEFAULT_PART_SIZE = 4194304
 
 
 class ConsoleError(RuntimeError):
@@ -490,9 +492,11 @@ class App(object):
             archive_id = vault.create_archive_from_file(
                 filename=args.file, description=name)
         else:
-            archive_id = vault.concurrent_create_archive_from_file(
-                filename=args.file, description=name,
-                part_size=part_size, num_threads=num_threads)
+            uploader = ConcurrentUploader(self.connection.layer1,
+                                          vault.name,
+                                          part_size=part_size,
+                                          num_threads=num_threads)
+            archive_id = uploader.upload(args.file, description=name)
 
         self.cache.add_archive(args.vault, name, archive_id)
 
