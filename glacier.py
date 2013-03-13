@@ -352,7 +352,17 @@ def find_inventory_jobs(vault, max_age_hours=0):
 
 
 def find_complete_job(jobs):
-    for job in sorted(filter(lambda job: job.completed, jobs), key=lambda job: iso8601.parse_date(job.completion_date), reverse=True):
+    complete_jobs = filter(lambda job: job.completed, jobs)
+
+    def most_recent_job(job):
+        return iso8601.parse_date(job.completion_date)
+
+    sorted_completed_jobs = sorted(
+        complete_jobs,
+        key=most_recent_job, reverse=True
+    )
+
+    for job in sorted_completed_jobs:
         return job
 
 
@@ -526,10 +536,15 @@ class App(object):
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
                                      encryptor=None):
+        if encryptor:
+            destfile = tempfile.NamedTemporaryFile()
+        else:
+            destfile = f
+
         if job.archive_size > multipart_size:
             def fetch(start, end):
                 byte_range = start, end - 1
-                f.write(job.get_output(byte_range).read())
+                destfile.write(job.get_output(byte_range).read())
 
             whole_parts = job.archive_size // multipart_size
             for first_byte in xrange(0, whole_parts * multipart_size,
@@ -539,20 +554,22 @@ class App(object):
             if remainder:
                 fetch(job.archive_size - remainder, job.archive_size)
         else:
-            data = job.get_output().read()
-            if encryptor:
-                data = encryptor.decrypt(data)
-            f.write(data)
+            destfile.write(job.get_output().read())
 
         # Make sure that the file now exactly matches the downloaded archive,
         # even if the file existed before and was longer.
         try:
-            f.truncate(job.archive_size)
+            destfile.truncate(job.archive_size)
         except IOError, e:
             # Allow ESPIPE, since the "file" couldn't have existed before in
             # this case.
             if e.errno != errno.ESPIPE:
                 raise
+
+        # Decrypt file if encryptor is given
+        if encryptor:
+            encryptor.decrypt_file(destfile.name, f.name)
+            destfile.close()
 
     @classmethod
     def _archive_retrieve_completed(cls, args, job, name, encryptor=None):

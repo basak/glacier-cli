@@ -29,12 +29,19 @@ class Encryptor(object):
 
         return public_key, private_key
 
-    def encrypt_file(self, input_filename, output_filename):
-        fingerprint = self.gpg.list_keys()[0]["fingerprint"]
+    def _get_fingerprint(self):
+        return self.gpg.list_keys()[0]["fingerprint"]
 
-        with open(input_filename) as input_file:
+    def encrypt_file(self, input_filename, output_filename):
+        fingerprint = self._get_fingerprint()
+
+        with open(input_filename, "r") as input_file:
             self.gpg.encrypt_file(input_file, fingerprint,
                                   output=output_filename)
+
+    def decrypt_file(self, input_filename, output_filename):
+        with open(input_filename, "r") as input_file:
+            self.gpg.decrypt_file(input_file, output=output_filename)
 
     def decrypt(self, data):
         return self.gpg.decrypt(data)
