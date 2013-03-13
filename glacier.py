@@ -612,7 +612,8 @@ class App(object):
             job = vault.retrieve_archive(archive_id)
             if args.wait:
                 wait_until_job_completed([job])
-                self._archive_retrieve_completed(args, job, name)
+                self._archive_retrieve_completed(args, job, name,
+                                                 encryptor=encryptor)
             else:
                 raise RetryConsoleError('queued retrieval job for archive %r'
                                         % name)
