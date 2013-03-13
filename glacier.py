@@ -479,7 +479,8 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+        uploader = boto.glacier.concurrent.ConcurrentUploader(vault.layer1, vault.name, part_size=args.multipart_size, num_threads=args.threads)
+        archive_id = uploader.upload(args.file.name, description=name)
         self.cache.add_archive(args.vault, name, archive_id)
 
     @staticmethod
@@ -644,6 +645,10 @@ class App(object):
         archive_upload_subparser.add_argument('vault')
         archive_upload_subparser.add_argument('file',
                                               type=argparse.FileType('rb'))
+        archive_upload_subparser.add_argument('--multipart-size', type=int,
+                default=(8*1024*1024))
+        archive_upload_subparser.add_argument('--threads', type=int,
+                default=1)
         archive_upload_subparser.add_argument('--name')
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
         archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
