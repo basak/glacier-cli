@@ -561,8 +561,8 @@ class App(object):
         try:
             destfile.truncate(job.archive_size)
         except IOError, e:
-            # Allow ESPIPE, since the "file" couldn't have existed before in
-            # this case.
+            # Allow ESPIPE, since the "file" couldn't have existed
+            # before in this case.
             if e.errno != errno.ESPIPE:
                 raise
 
