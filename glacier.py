@@ -692,6 +692,7 @@ class App(object):
     def main(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default=DEFAULT_REGION)
+
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
@@ -719,6 +720,7 @@ class App(object):
         archive_upload_subparser.add_argument('vault')
         archive_upload_subparser.add_argument('file')
         archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument('--encrypt', default=True)
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
@@ -730,6 +732,8 @@ class App(object):
         archive_multipart_upload_subparser.add_argument('vault')
         archive_multipart_upload_subparser.add_argument('file')
         archive_multipart_upload_subparser.add_argument('--name')
+        archive_multipart_upload_subparser.add_argument(
+            '--encrypt', default=True)
         archive_multipart_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
@@ -754,6 +758,8 @@ class App(object):
         archive_retrieve_subparser.add_argument('-o', dest='output_filename',
                                                 metavar='OUTPUT_FILENAME')
         archive_retrieve_subparser.add_argument('--wait', action='store_true')
+        archive_multipart_upload_subparser.add_argument(
+            '--decrypt', default=True)
 
         # Delete command
         archive_delete_subparser = archive_subparser.add_parser('delete')
@@ -777,6 +783,7 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
+
         args = parser.parse_args()
         self.connection = boto.glacier.connect_to_region(args.region)
         self.cache = Cache(get_connection_account(self.connection))
