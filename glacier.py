@@ -506,7 +506,7 @@ class App(object):
                 raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
-        if encryptor:
+        if args.encrypt:
             tmpfile = tempfile.NamedTemporaryFile()
             encryptor.encrypt_file(args.file, tmpfile.name)
             filename = tmpfile.name
@@ -527,7 +527,7 @@ class App(object):
 
         self.cache.add_archive(args.vault, name, archive_id)
 
-        if encryptor:
+        if args.encrypt:
             tmpfile.close()
 
     def multipart_archive_upload(self, args, encryptor=None):
@@ -624,6 +624,12 @@ class App(object):
                                "multi-archive retrieval")
         success_list = []
         retry_list = []
+
+        # Let called functions know that encryption was disabled from
+        # command-line.
+        if not args.decrypt:
+            encryptor = None
+
         for name in args.names:
             try:
                 self.archive_retrieve_one(args, name, encryptor=encryptor)
@@ -688,7 +694,6 @@ class App(object):
 
         print(args.name)
 
-
     def main(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default=DEFAULT_REGION)
@@ -720,7 +725,8 @@ class App(object):
         archive_upload_subparser.add_argument('vault')
         archive_upload_subparser.add_argument('file')
         archive_upload_subparser.add_argument('--name')
-        archive_upload_subparser.add_argument('--encrypt', default=True)
+        archive_upload_subparser.add_argument(
+            '--encrypt', default=False, action="store_true")
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
@@ -733,7 +739,7 @@ class App(object):
         archive_multipart_upload_subparser.add_argument('file')
         archive_multipart_upload_subparser.add_argument('--name')
         archive_multipart_upload_subparser.add_argument(
-            '--encrypt', default=True)
+            '--encrypt', default=False, action="store_true")
         archive_multipart_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
@@ -758,8 +764,8 @@ class App(object):
         archive_retrieve_subparser.add_argument('-o', dest='output_filename',
                                                 metavar='OUTPUT_FILENAME')
         archive_retrieve_subparser.add_argument('--wait', action='store_true')
-        archive_multipart_upload_subparser.add_argument(
-            '--decrypt', default=True)
+        archive_retrieve_subparser.add_argument(
+            '--decrypt', default=False, action="store_true")
 
         # Delete command
         archive_delete_subparser = archive_subparser.add_parser('delete')
