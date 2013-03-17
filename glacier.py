@@ -101,7 +101,7 @@ class Cache(object):
     class Archive(Base):
         __tablename__ = 'archive'
         id = sqlalchemy.Column(sqlalchemy.String, primary_key=True)
-        name = sqlalchemy.Column(sqlalchemy.String)
+        name = sqlalchemy.Column(sqlalchemy.String, unique=True)
         vault = sqlalchemy.Column(sqlalchemy.String, nullable=False)
         key = sqlalchemy.Column(sqlalchemy.String, nullable=False)
         last_seen_upstream = sqlalchemy.Column(sqlalchemy.Integer)
@@ -477,10 +477,14 @@ class App(object):
             except:
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
-
-        vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
-        self.cache.add_archive(args.vault, name, archive_id)
+        try:
+            check_archive_id = self.cache.get_archive_id(args.vault, name)
+        except KeyError:
+            vault = self.connection.get_vault(args.vault)
+            archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
+            self.cache.add_archive(args.vault, name, archive_id)
+        else:
+            raise RuntimeError('Archive seems to be present in glaicer. Not uploading')
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
@@ -621,7 +625,7 @@ class App(object):
 
     def main(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--region', default='us-east-1')
+        parser.add_argument('--region', default='eu-west-1')
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
