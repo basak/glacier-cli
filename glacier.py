@@ -625,7 +625,7 @@ class App(object):
 
     def main(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--region', default='us-east-1')
+        parser.add_argument('--region', default='eu-west-1')
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
