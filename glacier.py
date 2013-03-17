@@ -101,7 +101,7 @@ class Cache(object):
     class Archive(Base):
         __tablename__ = 'archive'
         id = sqlalchemy.Column(sqlalchemy.String, primary_key=True)
-        name = sqlalchemy.Column(sqlalchemy.String)
+        name = sqlalchemy.Column(sqlalchemy.String, unique=True)
         vault = sqlalchemy.Column(sqlalchemy.String, nullable=False)
         key = sqlalchemy.Column(sqlalchemy.String, nullable=False)
         last_seen_upstream = sqlalchemy.Column(sqlalchemy.Integer)
