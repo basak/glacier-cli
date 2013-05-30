@@ -619,7 +619,7 @@ class App(object):
         print(args.name)
 
 
-    def main(self):
+    def parse_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default='us-east-1')
         subparsers = parser.add_subparsers()
@@ -673,7 +673,10 @@ class App(object):
                 '--max-age', type=int, default=80, dest='max_age_hours')
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        args = parser.parse_args()
+        return parser.parse_args()
+
+    def main(self):
+        args = self.parse_args()
         self.connection = boto.glacier.connect_to_region(args.region)
         self.cache = Cache(get_connection_account(self.connection))
         try:
