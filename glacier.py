@@ -675,12 +675,22 @@ class App(object):
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
         return parser.parse_args()
 
-    def main(self):
+    def __init__(self, connection=None, cache=None):
         args = self.parse_args()
-        self.connection = boto.glacier.connect_to_region(args.region)
-        self.cache = Cache(get_connection_account(self.connection))
+
+        if connection is None:
+            connection = boto.glacier.connect_to_region(args.region)
+
+        if cache is None:
+            cache = Cache(get_connection_account(connection))
+
+        self.connection = connection
+        self.cache = cache
+        self.args = args
+
+    def main(self):
         try:
-            args.func(args)
+            self.args.func(self.args)
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
