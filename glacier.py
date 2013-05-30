@@ -390,7 +390,7 @@ def wait_until_job_completed(jobs, sleep=600, tries=144):
 
 
 class App(object):
-    def job_list(self, args):
+    def job_list(self):
         for vault in self.connection.list_vaults():
             job_list = [job_oneline(self.connection,
                                     self.cache,
@@ -400,12 +400,12 @@ class App(object):
             if job_list:
                 print(*job_list, sep="\n")
 
-    def vault_list(self, args):
+    def vault_list(self):
         print(*[vault.name for vault in self.connection.list_vaults()],
                 sep="\n")
 
-    def vault_create(self, args):
-        self.connection.create_vault(args.name)
+    def vault_create(self):
+        self.connection.create_vault(self.args.name)
 
     def _vault_sync_reconcile(self, vault, job, fix=False):
         response = job.get_output()
@@ -452,35 +452,36 @@ class App(object):
                 raise RetryConsoleError('queued inventory job for %r' %
                         vault.name)
 
-    def vault_sync(self, args):
-        return self._vault_sync(vault_name=args.name,
-                                max_age_hours=args.max_age_hours,
-                                fix=args.fix,
-                                wait=args.wait)
+    def vault_sync(self):
+        return self._vault_sync(vault_name=self.args.name,
+                                max_age_hours=self.args.max_age_hours,
+                                fix=self.args.fix,
+                                wait=self.args.wait)
 
-    def archive_list(self, args):
-        archive_list = list(self.cache.get_archive_list(args.vault))
+    def archive_list(self):
+        archive_list = list(self.cache.get_archive_list(self.args.vault))
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self, args):
+    def archive_upload(self):
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
         #       specifically ASCII values 32-126 decimal or 0x20-0x7E
         #       hexadecimal."
-        if args.name is not None:
-            name = args.name
+        if self.args.name is not None:
+            name = self.args.name
         else:
             try:
-                full_name = args.file.name
+                full_name = self.args.file.name
             except:
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
 
-        vault = self.connection.get_vault(args.vault)
-        archive_id = vault.create_archive_from_file(file_obj=args.file, description=name)
-        self.cache.add_archive(args.vault, name, archive_id)
+        vault = self.connection.get_vault(self.args.vault)
+        archive_id = vault.create_archive_from_file(
+            file_obj=self.args.file, description=name)
+        self.cache.add_archive(self.args.vault, name, archive_id)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
@@ -522,41 +523,41 @@ class App(object):
             with open(filename, 'wb') as f:
                 cls._write_archive_retrieval_job(f, job, args.multipart_size)
 
-    def archive_retrieve_one(self, args, name):
+    def archive_retrieve_one(self, name):
         try:
-            archive_id = self.cache.get_archive_id(args.vault, name)
+            archive_id = self.cache.get_archive_id(self.args.vault, name)
         except KeyError:
             raise ConsoleError('archive %r not found' % name)
 
-        vault = self.connection.get_vault(args.vault)
+        vault = self.connection.get_vault(self.args.vault)
         retrieval_jobs = find_retrieval_jobs(vault, archive_id)
 
         complete_job = find_complete_job(retrieval_jobs)
         if complete_job:
-            self._archive_retrieve_completed(args, complete_job, name)
+            self._archive_retrieve_completed(self.args, complete_job, name)
         elif has_pending_job(retrieval_jobs):
-            if args.wait:
+            if self.args.wait:
                 complete_job = wait_until_job_completed(retrieval_jobs)
-                self._archive_retrieve_completed(args, complete_job, name)
+                self._archive_retrieve_completed(self.args, complete_job, name)
             else:
                 raise RetryConsoleError('job still pending for archive %r' % name)
         else:
             # create an archive retrieval job
             job = vault.retrieve_archive(archive_id)
-            if args.wait:
+            if self.args.wait:
                 wait_until_job_completed([job])
-                self._archive_retrieve_completed(args, job, name)
+                self._archive_retrieve_completed(self.args, job, name)
             else:
                 raise RetryConsoleError('queued retrieval job for archive %r' % name)
 
-    def archive_retrieve(self, args):
-        if len(args.names) > 1 and args.output_filename:
+    def archive_retrieve(self):
+        if len(self.args.names) > 1 and self.args.output_filename:
             raise ConsoleError('cannot specify output filename with multi-archive retrieval')
         success_list = []
         retry_list = []
-        for name in args.names:
+        for name in self.args.names:
             try:
-                self.archive_retrieve_one(args, name)
+                self.archive_retrieve_one(name)
             except RetryConsoleError, e:
                 retry_list.append(e.message)
             else:
@@ -565,58 +566,64 @@ class App(object):
             message_list = success_list + retry_list
             raise RetryConsoleError("\n".join(message_list))
 
-    def archive_delete(self, args):
+    def archive_delete(self):
         try:
-            archive_id = self.cache.get_archive_id(args.vault, args.name)
+            archive_id = self.cache.get_archive_id(
+                self.args.vault, self.args.name)
         except KeyError:
-            raise ConsoleError('archive %r not found' % args.name)
-        vault = self.connection.get_vault(args.vault)
+            raise ConsoleError('archive %r not found' % self.args.name)
+        vault = self.connection.get_vault(self.args.vault)
         vault.delete_archive(archive_id)
-        self.cache.delete_archive(args.vault, args.name)
+        self.cache.delete_archive(self.args.vault, self.args.name)
 
-    def archive_checkpresent(self, args):
+    def archive_checkpresent(self):
         try:
-            last_seen = self.cache.get_archive_last_seen(args.vault, args.name)
+            last_seen = self.cache.get_archive_last_seen(
+                self.args.vault, self.args.name)
         except KeyError:
-            if args.wait:
+            if self.args.wait:
                 last_seen = None
             else:
-                if not args.quiet:
-                    print('archive %r not found' % args.name, file=sys.stderr)
+                if not self.args.quiet:
+                    print(
+                        'archive %r not found' % self.args.name,
+                        file=sys.stderr)
                 return
 
         def too_old(last_seen):
-            return not last_seen or not args.max_age_hours or (
-                    last_seen < time.time() - args.max_age_hours * 60 * 60)
+            return (not last_seen or
+                    not self.args.max_age_hours or
+                    (last_seen <
+                        time.time() - self.args.max_age_hours * 60 * 60))
 
         if too_old(last_seen):
             # Not recent enough
             try:
-                self._vault_sync(vault_name=args.vault,
-                                 max_age_hours=args.max_age_hours,
+                self._vault_sync(vault_name=self.args.vault,
+                                 max_age_hours=self.args.max_age_hours,
                                  fix=False,
-                                 wait=args.wait)
+                                 wait=self.args.wait)
             except RetryConsoleError:
                 pass
             else:
                 try:
-                    last_seen = self.cache.get_archive_last_seen(args.vault,
-                                                                 args.name)
+                    last_seen = self.cache.get_archive_last_seen(
+                        self.args.vault, self.args.name)
                 except KeyError:
-                    if not args.quiet:
+                    if not self.args.quiet:
                         print(('archive %r not found, but it may ' +
                                            'not be in the inventory yet')
-                                           % args.name, file=sys.stderr)
+                                           % self.args.name, file=sys.stderr)
                     return
 
         if too_old(last_seen):
-            if not args.quiet:
+            if not self.args.quiet:
                 print(('archive %r found, but has not been seen ' +
                                    'recently enough to consider it present') %
-                                   args.name, file=sys.stderr)
+                                   self.args.name, file=sys.stderr)
             return
 
-        print(args.name)
+        print(self.args.name)
 
 
     def parse_args(self):
@@ -690,7 +697,7 @@ class App(object):
 
     def main(self):
         try:
-            self.args.func(self.args)
+            self.args.func()
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
