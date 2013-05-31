@@ -58,6 +58,15 @@ class TestCase(unittest.TestCase):
         self.run_app(['vault', 'create', 'vault_name'])
         self.connection.create_vault.assert_called_once_with('vault_name')
 
+    def test_archive_list(self):
+        self.init_app(['archive', 'list', 'vault_name'])
+        archive_list = [sentinel.archive_one, sentinel.archive_two]
+        self.cache.get_archive_list.return_value = archive_list
+        print_mock = Mock()
+        with patch('__builtin__.print', print_mock):
+            self.app.main()
+        print_mock.assert_called_once_with(*archive_list, sep="\n")
+
     def test_stdin_upload(self):
         self.run_app(['archive', 'upload', 'vault_name', '-'])
         self.connection.get_vault.assert_called_once_with('vault_name')
