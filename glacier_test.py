@@ -128,3 +128,12 @@ class TestCase(unittest.TestCase):
         mock_open.assert_called_once_with('archive_name', u'wb')
         mock_open.return_value.write.assert_called_once_with(
             mock_job.get_output.return_value.read.return_value)
+
+    def test_archive_delete(self):
+        self.run_app(['archive', 'delete', 'vault_name', 'archive_name'])
+        self.cache.get_archive_id.assert_called_once_with(
+            'vault_name', 'archive_name')
+        self.connection.get_vault.assert_called_with('vault_name')
+        mock_vault = self.connection.get_vault.return_value
+        mock_vault.delete_archive.assert_called_once_with(
+            self.cache.get_archive_id.return_value)
