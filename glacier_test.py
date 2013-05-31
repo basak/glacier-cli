@@ -54,6 +54,10 @@ class TestCase(unittest.TestCase):
             self.app.main()
         print_mock.assert_called_once_with(sentinel.vault_name, sep=u'\n')
 
+    def test_vault_create(self):
+        self.run_app(['vault', 'create', 'vault_name'])
+        self.connection.create_vault.assert_called_once_with('vault_name')
+
     def test_stdin_upload(self):
         self.run_app(['archive', 'upload', 'vault_name', '-'])
         self.connection.get_vault.assert_called_once_with('vault_name')
