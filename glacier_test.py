@@ -21,10 +21,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
+from __future__ import print_function
+
 import sys
 import unittest
 
-from mock import Mock
+from mock import Mock, patch, sentinel
 
 import glacier
 
@@ -41,6 +43,16 @@ class TestCase(unittest.TestCase):
     def run_app(self, args):
         self.init_app(args)
         self.app.main()
+
+    def test_vault_list(self):
+        self.init_app(['vault', 'list'])
+        mock_vault = Mock()
+        mock_vault.name = sentinel.vault_name
+        self.connection.list_vaults.return_value = [mock_vault]
+        print_mock = Mock()
+        with patch('__builtin__.print', print_mock):
+            self.app.main()
+        print_mock.assert_called_once_with(sentinel.vault_name, sep=u'\n')
 
     def test_stdin_upload(self):
         self.run_app(['archive', 'upload', 'vault_name', '-'])
