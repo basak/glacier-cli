@@ -67,7 +67,18 @@ class TestCase(unittest.TestCase):
             self.app.main()
         print_mock.assert_called_once_with(*archive_list, sep="\n")
 
-    def test_stdin_upload(self):
+    def test_archive_upload(self):
+        file_obj = Mock()
+        file_obj.name = 'filename'
+        open_mock = Mock(return_value=file_obj)
+        with patch('__builtin__.open', open_mock):
+            self.run_app(['archive', 'upload', 'vault_name', 'filename'])
+        self.connection.get_vault.assert_called_with('vault_name')
+        mock_vault = self.connection.get_vault.return_value
+        mock_vault.create_archive_from_file.assert_called_once_with(
+            file_obj=file_obj, description='filename')
+
+    def test_archive_stdin_upload(self):
         self.run_app(['archive', 'upload', 'vault_name', '-'])
         self.connection.get_vault.assert_called_once_with('vault_name')
         vault = self.connection.get_vault.return_value
