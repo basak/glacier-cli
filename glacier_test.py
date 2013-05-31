@@ -26,9 +26,13 @@ from __future__ import print_function
 import sys
 import unittest
 
+import mock
 from mock import Mock, patch, sentinel
 
 import glacier
+
+
+EX_TEMPFAIL = 75
 
 
 class TestCase(unittest.TestCase):
@@ -84,3 +88,43 @@ class TestCase(unittest.TestCase):
         vault = self.connection.get_vault.return_value
         vault.create_archive_from_file.assert_called_once_with(
             file_obj=sys.stdin, description='<stdin>')
+
+    def test_archive_retrieve_no_job(self):
+        self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])
+        mock_vault = Mock()
+        mock_vault.list_jobs.return_value = []
+        self.connection.get_vault.return_value = mock_vault
+        mock_exit = Mock()
+        mock_print = Mock()
+        with patch('sys.exit', mock_exit):
+            with patch('__builtin__.print', mock_print):
+                self.app.main()
+        mock_exit.assert_called_once_with(EX_TEMPFAIL)
+        mock_print.assert_called_once_with(
+            u"glacier: queued retrieval job for archive 'archive_name'",
+            file=sys.stderr)
+        self.connection.get_vault.assert_called_once_with('vault_name')
+        mock_vault.retrieve_archive.assert_called_once_with(
+            self.cache.get_archive_id.return_value)
+
+    def test_archive_retrieve_with_job(self):
+        self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])
+        self.cache.get_archive_id.return_value = sentinel.archive_id
+        mock_job = Mock(
+            archive_id=sentinel.archive_id,
+            completed=True,
+            completion_date='1970-01-01T00:00:00Z',
+            archive_size=1)
+        mock_vault = Mock()
+        mock_vault.list_jobs.return_value = [mock_job]
+        self.connection.get_vault.return_value = mock_vault
+        mock_open = mock.mock_open()
+        with patch('__builtin__.open', mock_open):
+            self.app.main()
+        self.cache.get_archive_id.assert_called_once_with(
+            'vault_name', 'archive_name')
+        mock_job.get_output.assert_called_once_with()
+        mock_job.get_output.return_value.read.assert_called_once_with()
+        mock_open.assert_called_once_with('archive_name', u'wb')
+        mock_open.return_value.write.assert_called_once_with(
+            mock_job.get_output.return_value.read.return_value)
