@@ -114,10 +114,12 @@ class Cache(object):
 
     Session = sqlalchemy.orm.sessionmaker()
 
-    def __init__(self, key):
+    def __init__(self, key, db_path=None):
         self.key = key
-        db_path = os.path.join(get_user_cache_dir(), 'glacier-cli', 'db')
-        mkdir_p(os.path.dirname(db_path))
+        if db_path is None:
+            db_path = os.path.join(get_user_cache_dir(), 'glacier-cli', 'db')
+        if db_path != ':memory:':
+            mkdir_p(os.path.dirname(db_path))
         self.engine = sqlalchemy.create_engine('sqlite:///%s' % db_path)
         self.Base.metadata.create_all(self.engine)
         self.Session.configure(bind=self.engine)
