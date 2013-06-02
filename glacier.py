@@ -213,6 +213,13 @@ class Cache(object):
                 for subsequent_archive in archive_iterator:
                     yield force_id(subsequent_archive)
 
+    def get_archive_list_with_ids(self, vault):
+        for archive in self._get_archive_list_objects(vault):
+            yield "\t".join([
+                self._archive_ref(archive, force_id=True),
+                "%s" % archive.name,
+                ])
+
     def mark_seen_upstream(
             self, vault, id, name, upstream_creation_date,
             upstream_inventory_date, upstream_inventory_job_creation_date,
@@ -461,7 +468,12 @@ class App(object):
                                 wait=self.args.wait)
 
     def archive_list(self):
-        archive_list = list(self.cache.get_archive_list(self.args.vault))
+        if self.args.force_ids:
+            archive_list = list(self.cache.get_archive_list_with_ids(
+                self.args.vault))
+        else:
+            archive_list = list(self.cache.get_archive_list(self.args.vault))
+
         if archive_list:
             print(*archive_list, sep="\n")
 
@@ -647,6 +659,7 @@ class App(object):
         archive_subparser = subparsers.add_parser('archive').add_subparsers()
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
+        archive_list_subparser.add_argument('--force-ids', action='store_true')
         archive_list_subparser.add_argument('vault')
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)

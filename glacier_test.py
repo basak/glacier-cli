@@ -28,6 +28,7 @@ import unittest
 
 import mock
 from mock import Mock, patch, sentinel
+import nose.tools
 
 import glacier
 
@@ -36,9 +37,12 @@ EX_TEMPFAIL = 75
 
 
 class TestCase(unittest.TestCase):
-    def init_app(self, args):
+    def init_app(self, args, memory_cache=False):
         self.connection = Mock()
-        self.cache = Mock()
+        if memory_cache:
+            self.cache = glacier.Cache(0, db_path=':memory:')
+        else:
+            self.cache = Mock()
         self.app = glacier.App(
             args=args,
             connection=self.connection,
@@ -70,6 +74,36 @@ class TestCase(unittest.TestCase):
         with patch('__builtin__.print', print_mock):
             self.app.main()
         print_mock.assert_called_once_with(*archive_list, sep="\n")
+
+    def test_archive_list_force_ids(self):
+        self.init_app(
+            ['archive', 'list', '--force-ids', 'vault_name'],
+            memory_cache=True,
+        )
+        self.cache.add_archive('vault_name', 'archive_name_1', 'id_1')
+        self.cache.add_archive('vault_name', 'archive_name_1', 'id_2')
+        self.cache.add_archive('vault_name', 'archive_name_3', 'id_3')
+        print_mock = Mock()
+        with patch('__builtin__.print', print_mock):
+            self.app.main()
+
+        # print should have been called with a list of the items in some
+        # arbitrary order. Testing this correctly involves being agnostic with
+        # the order of args in *args. Does mock provide any other way of doing
+        # this other than by introspecting mock_calls like this?
+        nose.tools.assert_equals(print_mock.call_count, 1)
+        nose.tools.assert_equals(
+            sorted(print_mock.mock_calls[0][1]),
+            sorted([
+                u'id:id_1\tarchive_name_1',
+                u'id:id_2\tarchive_name_1',
+                u'id:id_3\tarchive_name_3',
+            ]),
+        )
+        nose.tools.assert_equals(
+            print_mock.mock_calls[0][2],
+            {'sep': "\n"}
+        )
 
     def test_archive_upload(self):
         file_obj = Mock()
