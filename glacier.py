@@ -453,7 +453,8 @@ class App(object):
                 raise RetryConsoleError('job still pending for inventory on %r' %
                                         vault.name)
         else:
-            job = vault.retrieve_inventory()
+            job_id = vault.retrieve_inventory()
+            job = vault.get_job(job_id)
             if wait:
                 wait_until_job_completed([job])
                 self._vault_sync_reconcile(vault, job, fix=fix)
