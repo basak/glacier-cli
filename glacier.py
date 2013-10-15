@@ -180,7 +180,7 @@ class Cache(object):
         else:
             return 'id:' + archive.id
 
-    def _get_archive_list_objects(self, vault):
+    def get_archive_list_objects(self, vault):
         for archive in (
                 self.session.query(self.Archive).
                              filter_by(key=self.key,
@@ -198,7 +198,7 @@ class Cache(object):
 
         for archive_name, archive_iterator in (
                 itertools.groupby(
-                    self._get_archive_list_objects(vault),
+                    self.get_archive_list_objects(vault),
                     lambda archive: archive.name)):
             # Yield self._archive_ref(..., force_id=True) if there is more than
             # one archive with the same name; otherwise use force_id=False.
@@ -214,7 +214,7 @@ class Cache(object):
                     yield force_id(subsequent_archive)
 
     def get_archive_list_with_ids(self, vault):
-        for archive in self._get_archive_list_objects(vault):
+        for archive in self.get_archive_list_objects(vault):
             yield "\t".join([
                 self._archive_ref(archive, force_id=True),
                 "%s" % archive.name,
@@ -469,14 +469,39 @@ class App(object):
                                 wait=self.args.wait)
 
     def archive_list(self):
-        if self.args.force_ids:
-            archive_list = list(self.cache.get_archive_list_with_ids(
-                self.args.vault))
-        else:
-            archive_list = list(self.cache.get_archive_list(self.args.vault))
+        if self.args.verbose:
+            archive_list = list(self.cache.get_archive_list_objects(self.args.vault))
+          
+            # Make the columns line up well and only show enough of 
+            # the id to be unique (kinda like git)
+            name_len = 8
+            id_len = 8
 
-        if archive_list:
-            print(*archive_list, sep="\n")
+            seen_ids = set()
+            for archive in archive_list:
+                name_len = max(name_len, len(archive.name))
+                short_id = archive.id[0:id_len]
+
+                while short_id in seen_ids:
+                    id_len += 1
+                    short_id = archive.id[0:id_len]
+                seen_ids.add(short_id)
+
+            row_format = "%%-%ds    %%-%ds    %%-20s     %%-20s" % (id_len, name_len)
+            print(row_format % ("Id", "Name", "Last Seen", "Created"))
+            for archive in archive_list:
+                last_seen_upstream = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.last_seen_upstream))
+                created_here       = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.created_here))
+                print(row_format % (archive.id[0:id_len], archive.name[0:name_len], last_seen_upstream, created_here))
+        else:
+            if self.args.force_ids:
+                archive_list = list(self.cache.get_archive_list_with_ids(
+                    self.args.vault))
+            else:
+                archive_list = list(self.cache.get_archive_list(self.args.vault))
+
+            if archive_list:
+                print(*archive_list, sep="\n")
 
     def archive_upload(self):
         # XXX: "Leading whitespace in archive descriptions is removed."
@@ -688,6 +713,7 @@ class App(object):
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
         archive_list_subparser.add_argument('--force-ids', action='store_true')
+        archive_list_subparser.add_argument('--verbose', action='store_true')
         archive_list_subparser.add_argument('vault')
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)
