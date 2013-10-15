@@ -744,6 +744,77 @@ class App(object):
 
         print(self.args.name)
 
+    def archive_check(self):
+        if self.args.name is not None:
+            name = self.args.name
+        else:
+            try:
+                full_name = self.args.file.name
+            except:
+                raise RuntimeError('Archive name not specified. Use --name')
+            name = os.path.basename(full_name)
+
+        try:
+            last_seen = self.cache.get_archive_last_seen(
+                self.args.vault, name)
+        except KeyError:
+            if self.args.wait:
+                last_seen = None
+            else:
+                if not self.args.quiet:
+                    print("%s: NOT FOUND" % name)
+                return 1
+
+        def too_old(last_seen):
+            return (not last_seen or
+                    not self.args.max_age_hours or
+                    (last_seen <
+                        time.time() - self.args.max_age_hours * 60 * 60))
+
+        if too_old(last_seen) and self.args.no_sync == False:
+            # Not recent enough
+            try:
+                self._vault_sync(vault_name=self.args.vault,
+                                 max_age_hours=self.args.max_age_hours,
+                                 fix=False,
+                                 wait=self.args.wait)
+            except RetryConsoleError:
+                pass
+            else:
+                try:
+                    last_seen = self.cache.get_archive_last_seen(
+                        self.args.vault, name)
+                except KeyError:
+                    if not self.args.quiet:
+                        print("%s: NOT FOUND" % name)
+                    return 75 # EX_TEMPFAIL
+
+        if too_old(last_seen):
+            if not self.args.quiet:
+                print("%s: OUT OF DATE" % name)
+            return 75 # EX_TEMPFAIL
+
+        try:
+            last_seen_sha256hash = self.cache.get_archive_last_seen_sha256hash(
+                self.args.vault, name)
+        except KeyError:
+            if not self.args.quiet:
+                print("%s: NOT FOUND" % name)
+            return 75 # EX_TEMPFAIL
+
+        if not last_seen_sha256hash:
+            if not self.args.quiet:
+                print("%s: NO HASH" % name)
+            return 75 # EX_TEMPFAIL
+
+        # Compare it to the file hash
+        linear_hash, sha256hash = boto.glacier.writer.compute_hashes_from_fileobj(self.args.file)
+        if last_seen_sha256hash != sha256hash:
+            if not self.args.quiet:
+                print("%s: HASH MISMATCH" % name)
+                return 1
+        print("%s: OK" % name)
+
 
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
@@ -802,6 +873,22 @@ class App(object):
         archive_checkpresent_subparser.add_argument('--quiet',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument(
+                '--max-age', type=int, default=80, dest='max_age_hours')
+        archive_check_subparser = archive_subparser.add_parser(
+                'check')
+        archive_check_subparser.set_defaults(
+                func=self.archive_check)
+        archive_check_subparser.add_argument('vault')
+        archive_check_subparser.add_argument('file',
+                                              type=argparse.FileType('rb'))
+        archive_check_subparser.add_argument('--name')
+        archive_check_subparser.add_argument('--no-sync',
+                                              action='store_true')
+        archive_check_subparser.add_argument('--wait',
+                                             action='store_true')
+        archive_check_subparser.add_argument('--quiet',
+                                             action='store_true')
+        archive_check_subparser.add_argument(
                 '--max-age', type=int, default=80, dest='max_age_hours')
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
