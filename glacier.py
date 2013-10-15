@@ -775,25 +775,18 @@ class App(object):
         print(self.args.name)
 
     def archive_check(self):
-        if self.args.name is not None:
-            name = self.args.name
-        else:
-            try:
-                full_name = self.args.file.name
-            except:
-                raise RuntimeError('Archive name not specified. Use --name')
-            name = os.path.basename(full_name)
+        if len(self.args.files) == 0:
+            return
+        if self.args.name is not None and len(self.args.files) > 1:
+            raise RuntimeError("--name can only be used when uploading a single file")
+        if "-" in self.args.files and len(self.args.files) > 1:
+            raise RuntimeError("Standard-input upload cannot be combined with file uploads")
 
-        try:
-            last_seen = self.cache.get_archive_last_seen(
-                self.args.vault, name)
-        except KeyError:
-            if self.args.wait:
-                last_seen = None
-            else:
-                if not self.args.quiet:
-                    print("%s: NOT FOUND" % name)
-                return 1
+        self.args.files = list(unique(self.args.files))
+
+        num_tempfail = 0
+        num_not_found = 0
+        num_hash_mismatch = 0
 
         def too_old(last_seen):
             return (not last_seen or
@@ -801,50 +794,100 @@ class App(object):
                     (last_seen <
                         time.time() - self.args.max_age_hours * 60 * 60))
 
-        if too_old(last_seen) and self.args.no_sync == False:
-            # Not recent enough
-            try:
-                self._vault_sync(vault_name=self.args.vault,
-                                 max_age_hours=self.args.max_age_hours,
-                                 fix=False,
-                                 wait=self.args.wait)
-            except RetryConsoleError:
-                pass
+        for file_name in self.args.files:
+            if file_name == "-":
+                check_file = sys.stdin
             else:
+                try:
+                    check_file = open(file_name, "rb")
+                except IOError as e:
+                    message = "can't open '%s': %s" # same message that argparse.FileType would create
+                    raise ConsoleError(message % (file_name, e))
+
+            with check_file:
+                if self.args.name is not None:
+                    name = self.args.name
+                else:
+                    try:
+                        full_name = check_file.name
+                    except:
+                        raise RuntimeError('Archive name not specified. Use --name')
+                    name = os.path.basename(full_name)
+
                 try:
                     last_seen = self.cache.get_archive_last_seen(
                         self.args.vault, name)
                 except KeyError:
+                    if self.args.wait:
+                        last_seen = None
+                    else:
+                        if not self.args.quiet:
+                            print("%s: NOT FOUND" % name)
+                        num_not_found += 1
+                        continue
+
+                if too_old(last_seen) and self.args.no_sync == False:
+                    # Not recent enough
+                    try:
+                        self._vault_sync(vault_name=self.args.vault,
+                                         max_age_hours=self.args.max_age_hours,
+                                         fix=False,
+                                         wait=self.args.wait)
+                    except RetryConsoleError:
+                        pass
+                    else:
+                        try:
+                            last_seen = self.cache.get_archive_last_seen(
+                                self.args.vault, name)
+                        except KeyError:
+                            if not self.args.quiet:
+                                print("%s: NOT FOUND" % name)
+                            num_tempfail += 1
+                            continue
+
+                if too_old(last_seen):
+                    if not self.args.quiet:
+                        print("%s: OUT OF DATE" % name)
+                    num_tempfail += 1
+                    continue
+
+                try:
+                    last_seen_sha256hash = self.cache.get_archive_last_seen_sha256hash(
+                        self.args.vault, name)
+                except KeyError:
                     if not self.args.quiet:
                         print("%s: NOT FOUND" % name)
-                    return 75 # EX_TEMPFAIL
+                    num_tempfail += 1
+                    continue
 
-        if too_old(last_seen):
-            if not self.args.quiet:
-                print("%s: OUT OF DATE" % name)
+                if not last_seen_sha256hash:
+                    if not self.args.quiet:
+                        print("%s: NO HASH" % name)
+                    num_tempfail += 1
+                    continue
+
+                # Compare it to the file hash
+                linear_hash, sha256hash = boto.glacier.writer.compute_hashes_from_fileobj(check_file)
+                if last_seen_sha256hash != sha256hash:
+                    if not self.args.quiet:
+                        print("%s: HASH MISMATCH" % name)
+                        num_hash_mismatch = 0
+                        continue
+                print("%s: OK" % name)
+
+        if num_hash_mismatch:
+            print("WARNING: %s computed hashes did NOT match" % num_hash_mismatch, file=sys.stderr)
+        if num_not_found:
+            print("WARNING: %s files were NOT present in inventory" % num_not_found, file=sys.stderr)
+        if num_tempfail:
+            print("WARNING: %s files potentially require an inventory sync" % num_tempfail, file=sys.stderr)
+
+        if num_hash_mismatch > 0 or num_not_found > 0:
+            return 1 # Failure always trump other exit status
+        elif num_tempfail > 0:
             return 75 # EX_TEMPFAIL
-
-        try:
-            last_seen_sha256hash = self.cache.get_archive_last_seen_sha256hash(
-                self.args.vault, name)
-        except KeyError:
-            if not self.args.quiet:
-                print("%s: NOT FOUND" % name)
-            return 75 # EX_TEMPFAIL
-
-        if not last_seen_sha256hash:
-            if not self.args.quiet:
-                print("%s: NO HASH" % name)
-            return 75 # EX_TEMPFAIL
-
-        # Compare it to the file hash
-        linear_hash, sha256hash = boto.glacier.writer.compute_hashes_from_fileobj(self.args.file)
-        if last_seen_sha256hash != sha256hash:
-            if not self.args.quiet:
-                print("%s: HASH MISMATCH" % name)
-                return 1
-        print("%s: OK" % name)
-
+        else:
+            return 0
 
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
