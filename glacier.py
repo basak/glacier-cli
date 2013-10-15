@@ -770,7 +770,11 @@ class App(object):
 
     def main(self):
         try:
-            self.args.func()
+            status = self.args.func()
+            if status == None:
+                sys.exit(0)
+            else:
+                sys.exit(status)
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
