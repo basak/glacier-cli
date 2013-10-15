@@ -611,7 +611,7 @@ class App(object):
                     (last_seen <
                         time.time() - self.args.max_age_hours * 60 * 60))
 
-        if too_old(last_seen):
+        if too_old(last_seen) and self.args.no_sync == False:
             # Not recent enough
             try:
                 self._vault_sync(vault_name=self.args.vault,
@@ -688,6 +688,8 @@ class App(object):
                 func=self.archive_checkpresent)
         archive_checkpresent_subparser.add_argument('vault')
         archive_checkpresent_subparser.add_argument('name')
+        archive_checkpresent_subparser.add_argument('--no-sync',
+                                                    action='store_true')
         archive_checkpresent_subparser.add_argument('--wait',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument('--quiet',
