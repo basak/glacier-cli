@@ -95,6 +95,12 @@ def get_user_cache_dir():
         raise RuntimeError('Cannot find user home directory')
     return os.path.join(home, '.cache')
 
+def unique(seq):
+   seen = set()
+   for item in seq:
+       if item not in seen:
+           seen.add(item)
+           yield item
 
 class Cache(object):
     Base = sqlalchemy.ext.declarative.declarative_base()
@@ -556,51 +562,75 @@ class App(object):
         #       allowable characters are 7 bit ASCII without control codes,
         #       specifically ASCII values 32-126 decimal or 0x20-0x7E
         #       hexadecimal."
-        if self.args.name is not None:
-            name = self.args.name
-        else:
-            try:
-                full_name = self.args.file.name
-            except:
-                raise RuntimeError('Archive name not specified. Use --name')
-            name = os.path.basename(full_name)
+        if len(self.args.files) == 0:
+            return
+        if self.args.name is not None and len(self.args.files) > 1:
+            raise RuntimeError("--name can only be used when uploading a single file")
+        if "-" in self.args.files and len(self.args.files) > 1:
+            raise RuntimeError("Standard-input upload cannot be combined with file uploads")
+
+        self.args.files = list(unique(self.args.files))
 
         vault = self.connection.get_vault(self.args.vault)
 
-        # Basically a copy from boto.glacier.vault, but supports
-        # printing progress
-        if self.args.file == sys.stdin:
-            size = None
-        else:
-            size = os.fstat(self.args.file.fileno()).st_size
+        for file_name in self.args.files:
+            if file_name == "-":
+                upload_file = sys.stdin
+            else:
+                try:
+                    upload_file = open(file_name, "rb")
+                except IOError as e:
+                    message = "can't open '%s': %s" # same message that argparse.FileType would create
+                    raise ConsoleError(message % (file_name, e))
 
-        written = 0
-        writer = vault.create_archive_writer(description=name)
-        while True:
-            data = self.args.file.read(boto.glacier.vault.Vault.DefaultPartSize)
-            if not data:
-                break
-            writer.write(data)
-            written += len(data)
-            kb_written = written / 1024
-            if not self.args.quiet:
-                if size > 0:
-                    percent_written = (float(written) / size) * 100.0
-                    sys.stdout.write("\r%3.0f%% %24skB %s" % (percent_written, kb_written, name))
+            with upload_file:
+                if self.args.name is not None:
+                    name = self.args.name
                 else:
-                    sys.stdout.write("\r     %24skB %s" % (kb_written, name))
-                sys.stdout.flush()
-        writer.close()
-        if not self.args.quiet:
-            sys.stdout.write("\n")
+                    try:
+                        full_name = upload_file.name
+                    except AttributeError:
+                        full_name = None
 
-        archive_id = writer.get_archive_id()
-        # once glacier-cli supports a newer version of boto we can use this
-        # sha256hash = writer.current_tree_hash...until then...use the
-        # semi-private attribute
-        sha256hash = boto.glacier.writer.bytes_to_hex(
+                    if full_name == None:
+                        raise RuntimeError('Archive name not specified. Use --name')
+                    name = os.path.basename(full_name)
+
+                # Basically a copy from boto.glacier.vault, but supports
+                # printing progress and storing the final hash
+                if upload_file == sys.stdin:
+                    size = None
+                else:
+                    size = os.fstat(upload_file.fileno()).st_size
+
+                written = 0
+                writer = vault.create_archive_writer(description=name)
+                while True:
+                    data = upload_file.read(boto.glacier.vault.Vault.DefaultPartSize)
+                    if not data:
+                        break
+                    writer.write(data)
+                    written += len(data)
+                    percent_written = (float(written) / size) * 100.0
+                    kb_written = written / 1024
+                    if not self.args.quiet:
+                        if size > 0:
+                            percent_written = (float(written) / size) * 100.0
+                            sys.stdout.write("\r%3.0f%% %24skB %s" % (percent_written, kb_written, name))
+                        else:
+                            sys.stdout.write("\r     %24skB %s" % (kb_written, name))
+                        sys.stdout.flush()
+                writer.close()
+                if not self.args.quiet:
+                    sys.stdout.write("\n")
+
+                archive_id = writer.get_archive_id()
+                # once glacier-cli supports a newer version of boto we can use this
+                # sha256hash = writer.current_tree_hash...until then...use the
+                # semi-private attribute
+                sha256hash = boto.glacier.writer.bytes_to_hex(
                          boto.glacier.writer.tree_hash(writer._tree_hashes))
-        self.cache.add_archive(self.args.vault, name, archive_id, sha256hash)
+                self.cache.add_archive(self.args.vault, name, archive_id, sha256hash)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
@@ -841,8 +871,7 @@ class App(object):
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file',
-                                              type=argparse.FileType('rb'))
+        archive_upload_subparser.add_argument('files', nargs="+")
         archive_upload_subparser.add_argument('--name')
         archive_upload_subparser.add_argument('--quiet',
                                               action='store_true')
@@ -879,8 +908,7 @@ class App(object):
         archive_check_subparser.set_defaults(
                 func=self.archive_check)
         archive_check_subparser.add_argument('vault')
-        archive_check_subparser.add_argument('file',
-                                              type=argparse.FileType('rb'))
+        archive_check_subparser.add_argument('files', nargs="+")
         archive_check_subparser.add_argument('--name')
         archive_check_subparser.add_argument('--no-sync',
                                               action='store_true')
