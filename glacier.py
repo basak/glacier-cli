@@ -107,6 +107,7 @@ class Cache(object):
         last_seen_upstream = sqlalchemy.Column(sqlalchemy.Integer)
         created_here = sqlalchemy.Column(sqlalchemy.Integer)
         deleted_here = sqlalchemy.Column(sqlalchemy.Integer)
+        sha256hash = sqlalchemy.Column(sqlalchemy.String)
 
         def __init__(self, *args, **kwargs):
             self.created_here = time.time()
@@ -121,13 +122,25 @@ class Cache(object):
         if db_path != ':memory:':
             mkdir_p(os.path.dirname(db_path))
         self.engine = sqlalchemy.create_engine('sqlite:///%s' % db_path)
+        self._migrate_db()
         self.Base.metadata.create_all(self.engine)
         self.Session.configure(bind=self.engine)
         self.session = self.Session()
 
-    def add_archive(self, vault, name, id):
+    def _migrate_db(self):
+        # SQL alchemy can only add columns
+        table_name = Cache.Archive.__tablename__
+        res = self.engine.execute('PRAGMA table_info(%s)' % (table_name))
+        has_sha256hash = False
+        for r in res:
+            if r[1] == "sha256hash":
+                has_sha256hash = True
+        if not has_sha256hash:
+            self.engine.execute('ALTER TABLE %s ADD COLUMN sha256hash VARCHAR' % (table_name))
+
+    def add_archive(self, vault, name, id, sha256hash=None):
         self.session.add(self.Archive(key=self.key,
-                                      vault=vault, name=name, id=id))
+                                      vault=vault, name=name, id=id, sha256hash=sha256hash))
         self.session.commit()
 
     def _get_archive_query_by_ref(self, vault, ref):
@@ -160,6 +173,13 @@ class Cache(object):
         except sqlalchemy.orm.exc.NoResultFound:
             raise KeyError(ref)
         return result.last_seen_upstream or result.created_here
+
+    def get_archive_last_seen_sha256hash(self, vault, ref):
+        try:
+            result = self._get_archive_query_by_ref(vault, ref).one()
+        except sqlalchemy.orm.exc.NoResultFound:
+            raise KeyError(ref)
+        return result.sha256hash
 
     def delete_archive(self, vault, ref):
         try:
@@ -223,7 +243,8 @@ class Cache(object):
     def mark_seen_upstream(
             self, vault, id, name, upstream_creation_date,
             upstream_inventory_date, upstream_inventory_job_creation_date,
-            fix=False):
+            fix=False,
+            sha256hash=None):
 
         # Inventories don't get recreated unless the vault has changed.
         # See: https://forums.aws.amazon.com/thread.jspa?threadID=106541
@@ -259,7 +280,8 @@ class Cache(object):
             self.session.add(
                 self.Archive(
                     key=self.key, vault=vault, name=name, id=id,
-                    last_seen_upstream=last_seen_upstream
+                    last_seen_upstream=last_seen_upstream,
+                    sha256hash=sha256hash
                     )
                 )
         else:
@@ -273,6 +295,17 @@ class Cache(object):
                 else:
                     warn('archive %r appears to have changed name from %r ' %
                          (archive.id, archive.name) + 'to %r' % (name))
+            if not archive.sha256hash:
+                archive.sha256hash = sha256hash
+            elif archive.sha256hash != archive.sha256hash:
+                if fix:
+                    warn('archive %r appears to have changed hash from %r ' %
+                         (archive.id, archive.sha256hash) + 'to %r (fixed)' % (sha256hash))
+                    archive.name = name
+                else:
+                    warn('archive %r appears to have changed hash from %r ' %
+                         (archive.id, archive.sha256hash) + 'to %r (fixed)' % (sha256hash))
+
             if archive.deleted_here:
                 archive_ref = self._archive_ref(archive)
                 if archive.deleted_here < upstream_inventory_date:
@@ -432,7 +465,8 @@ class App(object):
                 upstream_creation_date=creation_date,
                 upstream_inventory_date=inventory_date,
                 upstream_inventory_job_creation_date=job_creation_date,
-                fix=fix)
+                fix=fix,
+                sha256hash=archive.get('SHA256TreeHash', None))
             seen_ids.append(id)
         self.cache.mark_only_seen(vault.name, inventory_date, seen_ids,
                                   fix=fix)
@@ -473,11 +507,13 @@ class App(object):
             archive_list = list(self.cache.get_archive_list_objects(self.args.vault))
           
             # Make the columns line up well and only show enough of 
-            # the id to be unique (kinda like git)
+            # the id and sha256 hash to be unique (kinda like git)
             name_len = 8
             id_len = 8
+            hash_len = 8
 
             seen_ids = set()
+            seen_hashes = set()
             for archive in archive_list:
                 name_len = max(name_len, len(archive.name))
                 short_id = archive.id[0:id_len]
@@ -487,12 +523,23 @@ class App(object):
                     short_id = archive.id[0:id_len]
                 seen_ids.add(short_id)
 
-            row_format = "%%-%ds    %%-%ds    %%-20s     %%-20s" % (id_len, name_len)
-            print(row_format % ("Id", "Name", "Last Seen", "Created"))
+                if archive.sha256hash:
+                    short_hash = archive.sha256hash[0:hash_len]
+                    while short_hash in seen_hashes:
+                        hash_len += 1
+                        short_hash = archive.sha256hash[0:hash_len]
+                    seen_hashes.add(short_hash)
+
+            row_format = "%%-%ds    %%-%ds    %%-20s     %%-20s     %%-%ds" % (id_len, name_len, hash_len)
+            print(row_format % ("Id", "Name", "Last Seen", "Created", "Hash"))
             for archive in archive_list:
+                if archive.sha256hash:
+                    short_hash = archive.sha256hash[0:hash_len]
+                else:
+                    short_hash = ""
                 last_seen_upstream = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.last_seen_upstream))
                 created_here       = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.created_here))
-                print(row_format % (archive.id[0:id_len], archive.name[0:name_len], last_seen_upstream, created_here))
+                print(row_format % (archive.id[0:id_len], archive.name[0:name_len], last_seen_upstream, created_here, short_hash))
         else:
             if self.args.force_ids:
                 archive_list = list(self.cache.get_archive_list_with_ids(
@@ -548,7 +595,12 @@ class App(object):
             sys.stdout.write("\n")
 
         archive_id = writer.get_archive_id()
-        self.cache.add_archive(self.args.vault, name, archive_id)
+        # once glacier-cli supports a newer version of boto we can use this
+        # sha256hash = writer.current_tree_hash...until then...use the
+        # semi-private attribute
+        sha256hash = boto.glacier.writer.bytes_to_hex(
+                         boto.glacier.writer.tree_hash(writer._tree_hashes))
+        self.cache.add_archive(self.args.vault, name, archive_id, sha256hash)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
