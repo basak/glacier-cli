@@ -494,8 +494,35 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(self.args.vault)
-        archive_id = vault.create_archive_from_file(
-            file_obj=self.args.file, description=name)
+
+        # Basically a copy from boto.glacier.vault, but supports
+        # printing progress
+        if self.args.file == sys.stdin:
+            size = None
+        else:
+            size = os.fstat(self.args.file.fileno()).st_size
+
+        written = 0
+        writer = vault.create_archive_writer(description=name)
+        while True:
+            data = self.args.file.read(boto.glacier.vault.Vault.DefaultPartSize)
+            if not data:
+                break
+            writer.write(data)
+            written += len(data)
+            kb_written = written / 1024
+            if not self.args.quiet:
+                if size > 0:
+                    percent_written = (float(written) / size) * 100.0
+                    sys.stdout.write("\r%3.0f%% %24skB %s" % (percent_written, kb_written, name))
+                else:
+                    sys.stdout.write("\r     %24skB %s" % (kb_written, name))
+                sys.stdout.flush()
+        writer.close()
+        if not self.args.quiet:
+            sys.stdout.write("\n")
+
+        archive_id = writer.get_archive_id()
         self.cache.add_archive(self.args.vault, name, archive_id)
 
     @staticmethod
@@ -668,6 +695,8 @@ class App(object):
         archive_upload_subparser.add_argument('file',
                                               type=argparse.FileType('rb'))
         archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument('--quiet',
+                                              action='store_true')
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
         archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
         archive_retrieve_subparser.add_argument('vault')
