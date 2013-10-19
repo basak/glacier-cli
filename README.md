@@ -211,7 +211,7 @@ Commands
 * <code>glacier vault create <em>vault-name</em></code>
 * <code>glacier vault sync [--wait] [--fix] [--max-age <em>hours</em>] <em>vault-name</em></code>
 * <code>glacier archive list <em>vault-name</em></code>
-* <code>glacier archive upload [--name <em>archive-name</em>] <em>vault-name</em> <em>filename</em></code>
+* <code>glacier archive upload [--quiet] [--name <em>archive-name</em>] <em>vault-name</em> <em>filename</em></code>
 * <code>glacier archive retrieve [--wait] [-o <em>filename</em>] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em></code>
 * <code>glacier archive retrieve [--wait] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em> [<em>archive-name</em>...]</code>
 * <code>glacier archive delete <em>vault-name</em> <em>archive-name</em></code>

@@ -95,6 +95,12 @@ def get_user_cache_dir():
         raise RuntimeError('Cannot find user home directory')
     return os.path.join(home, '.cache')
 
+def unique(seq):
+   seen = set()
+   for item in seq:
+       if item not in seen:
+           seen.add(item)
+           yield item
 
 class Cache(object):
     Base = sqlalchemy.ext.declarative.declarative_base()
@@ -107,6 +113,7 @@ class Cache(object):
         last_seen_upstream = sqlalchemy.Column(sqlalchemy.Integer)
         created_here = sqlalchemy.Column(sqlalchemy.Integer)
         deleted_here = sqlalchemy.Column(sqlalchemy.Integer)
+        sha256hash = sqlalchemy.Column(sqlalchemy.String)
 
         def __init__(self, *args, **kwargs):
             self.created_here = time.time()
@@ -121,13 +128,25 @@ class Cache(object):
         if db_path != ':memory:':
             mkdir_p(os.path.dirname(db_path))
         self.engine = sqlalchemy.create_engine('sqlite:///%s' % db_path)
+        self._migrate_db()
         self.Base.metadata.create_all(self.engine)
         self.Session.configure(bind=self.engine)
         self.session = self.Session()
 
-    def add_archive(self, vault, name, id):
+    def _migrate_db(self):
+        # SQL alchemy can only add columns
+        table_name = Cache.Archive.__tablename__
+        res = self.engine.execute('PRAGMA table_info(%s)' % (table_name))
+        has_sha256hash = False
+        for r in res:
+            if r[1] == "sha256hash":
+                has_sha256hash = True
+        if not has_sha256hash:
+            self.engine.execute('ALTER TABLE %s ADD COLUMN sha256hash VARCHAR' % (table_name))
+
+    def add_archive(self, vault, name, id, sha256hash=None):
         self.session.add(self.Archive(key=self.key,
-                                      vault=vault, name=name, id=id))
+                                      vault=vault, name=name, id=id, sha256hash=sha256hash))
         self.session.commit()
 
     def _get_archive_query_by_ref(self, vault, ref):
@@ -161,6 +180,13 @@ class Cache(object):
             raise KeyError(ref)
         return result.last_seen_upstream or result.created_here
 
+    def get_archive_last_seen_sha256hash(self, vault, ref):
+        try:
+            result = self._get_archive_query_by_ref(vault, ref).one()
+        except sqlalchemy.orm.exc.NoResultFound:
+            raise KeyError(ref)
+        return result.sha256hash
+
     def delete_archive(self, vault, ref):
         try:
             result = self._get_archive_query_by_ref(vault, ref).one()
@@ -180,7 +206,7 @@ class Cache(object):
         else:
             return 'id:' + archive.id
 
-    def _get_archive_list_objects(self, vault):
+    def get_archive_list_objects(self, vault):
         for archive in (
                 self.session.query(self.Archive).
                              filter_by(key=self.key,
@@ -198,7 +224,7 @@ class Cache(object):
 
         for archive_name, archive_iterator in (
                 itertools.groupby(
-                    self._get_archive_list_objects(vault),
+                    self.get_archive_list_objects(vault),
                     lambda archive: archive.name)):
             # Yield self._archive_ref(..., force_id=True) if there is more than
             # one archive with the same name; otherwise use force_id=False.
@@ -214,7 +240,7 @@ class Cache(object):
                     yield force_id(subsequent_archive)
 
     def get_archive_list_with_ids(self, vault):
-        for archive in self._get_archive_list_objects(vault):
+        for archive in self.get_archive_list_objects(vault):
             yield "\t".join([
                 self._archive_ref(archive, force_id=True),
                 "%s" % archive.name,
@@ -223,7 +249,8 @@ class Cache(object):
     def mark_seen_upstream(
             self, vault, id, name, upstream_creation_date,
             upstream_inventory_date, upstream_inventory_job_creation_date,
-            fix=False):
+            fix=False,
+            sha256hash=None):
 
         # Inventories don't get recreated unless the vault has changed.
         # See: https://forums.aws.amazon.com/thread.jspa?threadID=106541
@@ -259,7 +286,8 @@ class Cache(object):
             self.session.add(
                 self.Archive(
                     key=self.key, vault=vault, name=name, id=id,
-                    last_seen_upstream=last_seen_upstream
+                    last_seen_upstream=last_seen_upstream,
+                    sha256hash=sha256hash
                     )
                 )
         else:
@@ -273,6 +301,17 @@ class Cache(object):
                 else:
                     warn('archive %r appears to have changed name from %r ' %
                          (archive.id, archive.name) + 'to %r' % (name))
+            if not archive.sha256hash:
+                archive.sha256hash = sha256hash
+            elif archive.sha256hash != archive.sha256hash:
+                if fix:
+                    warn('archive %r appears to have changed hash from %r ' %
+                         (archive.id, archive.sha256hash) + 'to %r (fixed)' % (sha256hash))
+                    archive.name = name
+                else:
+                    warn('archive %r appears to have changed hash from %r ' %
+                         (archive.id, archive.sha256hash) + 'to %r (fixed)' % (sha256hash))
+
             if archive.deleted_here:
                 archive_ref = self._archive_ref(archive)
                 if archive.deleted_here < upstream_inventory_date:
@@ -432,7 +471,8 @@ class App(object):
                 upstream_creation_date=creation_date,
                 upstream_inventory_date=inventory_date,
                 upstream_inventory_job_creation_date=job_creation_date,
-                fix=fix)
+                fix=fix,
+                sha256hash=archive.get('SHA256TreeHash', None))
             seen_ids.append(id)
         self.cache.mark_only_seen(vault.name, inventory_date, seen_ids,
                                   fix=fix)
@@ -469,14 +509,52 @@ class App(object):
                                 wait=self.args.wait)
 
     def archive_list(self):
-        if self.args.force_ids:
-            archive_list = list(self.cache.get_archive_list_with_ids(
-                self.args.vault))
-        else:
-            archive_list = list(self.cache.get_archive_list(self.args.vault))
+        if self.args.verbose:
+            archive_list = list(self.cache.get_archive_list_objects(self.args.vault))
+          
+            # Make the columns line up well and only show enough of 
+            # the id and sha256 hash to be unique (kinda like git)
+            name_len = 8
+            id_len = 8
+            hash_len = 8
 
-        if archive_list:
-            print(*archive_list, sep="\n")
+            seen_ids = set()
+            seen_hashes = set()
+            for archive in archive_list:
+                name_len = max(name_len, len(archive.name))
+                short_id = archive.id[0:id_len]
+
+                while short_id in seen_ids:
+                    id_len += 1
+                    short_id = archive.id[0:id_len]
+                seen_ids.add(short_id)
+
+                if archive.sha256hash:
+                    short_hash = archive.sha256hash[0:hash_len]
+                    while short_hash in seen_hashes:
+                        hash_len += 1
+                        short_hash = archive.sha256hash[0:hash_len]
+                    seen_hashes.add(short_hash)
+
+            row_format = "%%-%ds    %%-%ds    %%-20s     %%-20s     %%-%ds" % (id_len, name_len, hash_len)
+            print(row_format % ("Id", "Name", "Last Seen", "Created", "Hash"))
+            for archive in archive_list:
+                if archive.sha256hash:
+                    short_hash = archive.sha256hash[0:hash_len]
+                else:
+                    short_hash = ""
+                last_seen_upstream = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.last_seen_upstream))
+                created_here       = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.created_here))
+                print(row_format % (archive.id[0:id_len], archive.name[0:name_len], last_seen_upstream, created_here, short_hash))
+        else:
+            if self.args.force_ids:
+                archive_list = list(self.cache.get_archive_list_with_ids(
+                    self.args.vault))
+            else:
+                archive_list = list(self.cache.get_archive_list(self.args.vault))
+
+            if archive_list:
+                print(*archive_list, sep="\n")
 
     def archive_upload(self):
         # XXX: "Leading whitespace in archive descriptions is removed."
@@ -484,19 +562,75 @@ class App(object):
         #       allowable characters are 7 bit ASCII without control codes,
         #       specifically ASCII values 32-126 decimal or 0x20-0x7E
         #       hexadecimal."
-        if self.args.name is not None:
-            name = self.args.name
-        else:
-            try:
-                full_name = self.args.file.name
-            except:
-                raise RuntimeError('Archive name not specified. Use --name')
-            name = os.path.basename(full_name)
+        if len(self.args.files) == 0:
+            return
+        if self.args.name is not None and len(self.args.files) > 1:
+            raise RuntimeError("--name can only be used when uploading a single file")
+        if "-" in self.args.files and len(self.args.files) > 1:
+            raise RuntimeError("Standard-input upload cannot be combined with file uploads")
+
+        self.args.files = list(unique(self.args.files))
 
         vault = self.connection.get_vault(self.args.vault)
-        archive_id = vault.create_archive_from_file(
-            file_obj=self.args.file, description=name)
-        self.cache.add_archive(self.args.vault, name, archive_id)
+
+        for file_name in self.args.files:
+            if file_name == "-":
+                upload_file = sys.stdin
+            else:
+                try:
+                    upload_file = open(file_name, "rb")
+                except IOError as e:
+                    message = "can't open '%s': %s" # same message that argparse.FileType would create
+                    raise ConsoleError(message % (file_name, e))
+
+            with upload_file:
+                if self.args.name is not None:
+                    name = self.args.name
+                else:
+                    try:
+                        full_name = upload_file.name
+                    except AttributeError:
+                        full_name = None
+
+                    if full_name == None:
+                        raise RuntimeError('Archive name not specified. Use --name')
+                    name = os.path.basename(full_name)
+
+                # Basically a copy from boto.glacier.vault, but supports
+                # printing progress and storing the final hash
+                if upload_file == sys.stdin:
+                    size = None
+                else:
+                    size = os.fstat(upload_file.fileno()).st_size
+
+                written = 0
+                writer = vault.create_archive_writer(description=name)
+                while True:
+                    data = upload_file.read(boto.glacier.vault.Vault.DefaultPartSize)
+                    if not data:
+                        break
+                    writer.write(data)
+                    written += len(data)
+                    percent_written = (float(written) / size) * 100.0
+                    kb_written = written / 1024
+                    if not self.args.quiet:
+                        if size > 0:
+                            percent_written = (float(written) / size) * 100.0
+                            sys.stdout.write("\r%3.0f%% %24skB %s" % (percent_written, kb_written, name))
+                        else:
+                            sys.stdout.write("\r     %24skB %s" % (kb_written, name))
+                        sys.stdout.flush()
+                writer.close()
+                if not self.args.quiet:
+                    sys.stdout.write("\n")
+
+                archive_id = writer.get_archive_id()
+                # once glacier-cli supports a newer version of boto we can use this
+                # sha256hash = writer.current_tree_hash...until then...use the
+                # semi-private attribute
+                sha256hash = boto.glacier.writer.bytes_to_hex(
+                         boto.glacier.writer.tree_hash(writer._tree_hashes))
+                self.cache.add_archive(self.args.vault, name, archive_id, sha256hash)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size):
@@ -611,7 +745,7 @@ class App(object):
                     (last_seen <
                         time.time() - self.args.max_age_hours * 60 * 60))
 
-        if too_old(last_seen):
+        if too_old(last_seen) and self.args.no_sync == False:
             # Not recent enough
             try:
                 self._vault_sync(vault_name=self.args.vault,
@@ -640,6 +774,120 @@ class App(object):
 
         print(self.args.name)
 
+    def archive_check(self):
+        if len(self.args.files) == 0:
+            return
+        if self.args.name is not None and len(self.args.files) > 1:
+            raise RuntimeError("--name can only be used when uploading a single file")
+        if "-" in self.args.files and len(self.args.files) > 1:
+            raise RuntimeError("Standard-input upload cannot be combined with file uploads")
+
+        self.args.files = list(unique(self.args.files))
+
+        num_tempfail = 0
+        num_not_found = 0
+        num_hash_mismatch = 0
+
+        def too_old(last_seen):
+            return (not last_seen or
+                    not self.args.max_age_hours or
+                    (last_seen <
+                        time.time() - self.args.max_age_hours * 60 * 60))
+
+        for file_name in self.args.files:
+            if file_name == "-":
+                check_file = sys.stdin
+            else:
+                try:
+                    check_file = open(file_name, "rb")
+                except IOError as e:
+                    message = "can't open '%s': %s" # same message that argparse.FileType would create
+                    raise ConsoleError(message % (file_name, e))
+
+            with check_file:
+                if self.args.name is not None:
+                    name = self.args.name
+                else:
+                    try:
+                        full_name = check_file.name
+                    except:
+                        raise RuntimeError('Archive name not specified. Use --name')
+                    name = os.path.basename(full_name)
+
+                try:
+                    last_seen = self.cache.get_archive_last_seen(
+                        self.args.vault, name)
+                except KeyError:
+                    if self.args.wait:
+                        last_seen = None
+                    else:
+                        if not self.args.quiet:
+                            print("%s: NOT FOUND" % name)
+                        num_not_found += 1
+                        continue
+
+                if too_old(last_seen) and self.args.no_sync == False:
+                    # Not recent enough
+                    try:
+                        self._vault_sync(vault_name=self.args.vault,
+                                         max_age_hours=self.args.max_age_hours,
+                                         fix=False,
+                                         wait=self.args.wait)
+                    except RetryConsoleError:
+                        pass
+                    else:
+                        try:
+                            last_seen = self.cache.get_archive_last_seen(
+                                self.args.vault, name)
+                        except KeyError:
+                            if not self.args.quiet:
+                                print("%s: NOT FOUND" % name)
+                            num_tempfail += 1
+                            continue
+
+                if too_old(last_seen):
+                    if not self.args.quiet:
+                        print("%s: OUT OF DATE" % name)
+                    num_tempfail += 1
+                    continue
+
+                try:
+                    last_seen_sha256hash = self.cache.get_archive_last_seen_sha256hash(
+                        self.args.vault, name)
+                except KeyError:
+                    if not self.args.quiet:
+                        print("%s: NOT FOUND" % name)
+                    num_tempfail += 1
+                    continue
+
+                if not last_seen_sha256hash:
+                    if not self.args.quiet:
+                        print("%s: NO HASH" % name)
+                    num_tempfail += 1
+                    continue
+
+                # Compare it to the file hash
+                linear_hash, sha256hash = boto.glacier.writer.compute_hashes_from_fileobj(check_file)
+                if last_seen_sha256hash != sha256hash:
+                    if not self.args.quiet:
+                        print("%s: HASH MISMATCH" % name)
+                        num_hash_mismatch = 0
+                        continue
+                print("%s: OK" % name)
+
+        if num_hash_mismatch:
+            print("WARNING: %s computed hashes did NOT match" % num_hash_mismatch, file=sys.stderr)
+        if num_not_found:
+            print("WARNING: %s files were NOT present in inventory" % num_not_found, file=sys.stderr)
+        if num_tempfail:
+            print("WARNING: %s files potentially require an inventory sync" % num_tempfail, file=sys.stderr)
+
+        if num_hash_mismatch > 0 or num_not_found > 0:
+            return 1 # Failure always trump other exit status
+        elif num_tempfail > 0:
+            return 75 # EX_TEMPFAIL
+        else:
+            return 0
 
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
@@ -661,13 +909,15 @@ class App(object):
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
         archive_list_subparser.add_argument('--force-ids', action='store_true')
+        archive_list_subparser.add_argument('--verbose', action='store_true')
         archive_list_subparser.add_argument('vault')
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file',
-                                              type=argparse.FileType('rb'))
+        archive_upload_subparser.add_argument('files', nargs="+")
         archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument('--quiet',
+                                              action='store_true')
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
         archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
         archive_retrieve_subparser.add_argument('vault')
@@ -688,11 +938,28 @@ class App(object):
                 func=self.archive_checkpresent)
         archive_checkpresent_subparser.add_argument('vault')
         archive_checkpresent_subparser.add_argument('name')
+        archive_checkpresent_subparser.add_argument('--no-sync',
+                                                    action='store_true')
         archive_checkpresent_subparser.add_argument('--wait',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument('--quiet',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument(
+                '--max-age', type=int, default=80, dest='max_age_hours')
+        archive_check_subparser = archive_subparser.add_parser(
+                'check')
+        archive_check_subparser.set_defaults(
+                func=self.archive_check)
+        archive_check_subparser.add_argument('vault')
+        archive_check_subparser.add_argument('files', nargs="+")
+        archive_check_subparser.add_argument('--name')
+        archive_check_subparser.add_argument('--no-sync',
+                                              action='store_true')
+        archive_check_subparser.add_argument('--wait',
+                                             action='store_true')
+        archive_check_subparser.add_argument('--quiet',
+                                             action='store_true')
+        archive_check_subparser.add_argument(
                 '--max-age', type=int, default=80, dest='max_age_hours')
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
@@ -713,7 +980,11 @@ class App(object):
 
     def main(self):
         try:
-            self.args.func()
+            status = self.args.func()
+            if status == None:
+                sys.exit(0)
+            else:
+                sys.exit(status)
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
