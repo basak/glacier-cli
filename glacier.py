@@ -24,6 +24,7 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from functools import partial
 import argparse
 import calendar
 import errno
@@ -31,14 +32,19 @@ import itertools
 import os
 import os.path
 import sys
+import tempfile
 import time
 
+from boto.glacier.concurrent import ConcurrentUploader
+#from boto.glacier.utils import DEFAULT_NUM_THREADS
+DEFAULT_NUM_THREADS = 1
 import boto.glacier
 import iso8601
 import sqlalchemy
 import sqlalchemy.ext.declarative
 import sqlalchemy.orm
 
+from gpg import Encryptor
 
 # There is a lag between an archive being created and the archive
 # appearing on an inventory. Even if the inventory has an InventoryDate
@@ -50,12 +56,18 @@ INVENTORY_LAG = 24 * 60 * 60 * 3
 
 PROGRAM_NAME = 'glacier'
 
+DEFAULT_PART_SIZE = 4194304
+
+DEFAULT_REGION = 'us-east-1'
+
+
 class ConsoleError(RuntimeError):
     def __init__(self, m):
         self.message = m
 
 
-class RetryConsoleError(ConsoleError): pass
+class RetryConsoleError(ConsoleError):
+    pass
 
 
 def info(message):
@@ -349,7 +361,18 @@ def find_inventory_jobs(vault, max_age_hours=0):
 
 
 def find_complete_job(jobs):
-    for job in sorted(filter(lambda job: job.completed, jobs), key=lambda job: iso8601.parse_date(job.completion_date), reverse=True):
+    #for job in sorted(filter(lambda job: job.completed, jobs), key=lambda job: iso8601.parse_date(job.completion_date), reverse=True):
+    complete_jobs = filter(lambda job: job.completed, jobs)
+
+    def most_recent_job(job):
+        return iso8601.parse_date(job.completion_date)
+
+    sorted_completed_jobs = sorted(
+        complete_jobs,
+        key=most_recent_job, reverse=True
+    )
+
+    for job in sorted_completed_jobs:
         return job
 
 
@@ -478,7 +501,12 @@ class App(object):
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self):
+    def archive_upload(self,
+                       multipart=False,
+                       encryptor=None,
+                       part_size=DEFAULT_PART_SIZE,
+                       num_threads=DEFAULT_NUM_THREADS):
+
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
@@ -490,55 +518,90 @@ class App(object):
             try:
                 full_name = self.args.file.name
             except:
-                raise RuntimeError('Archive name not specified. Use --name')
+                raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
+        if self.args.encrypt:
+            tmpfile = tempfile.NamedTemporaryFile()
+            encryptor.encrypt_file(self.args.file.name, tmpfile.name)
+            file_obj = tmpfile
+        else:
+            file_obj = self.args.file
+
         vault = self.connection.get_vault(self.args.vault)
-        archive_id = vault.create_archive_from_file(
-            file_obj=self.args.file, description=name)
+
+        if not multipart:
+            archive_id = vault.create_archive_from_file(
+                file_obj=file_obj, description=name)
+        else:
+            uploader = ConcurrentUploader(self.connection.layer1,
+                                          vault.name,
+                                          part_size=part_size,
+                                          num_threads=num_threads)
+            archive_id = uploader.upload(filename, description=name)
+
         self.cache.add_archive(self.args.vault, name, archive_id)
 
+        if self.args.encrypt:
+            tmpfile.close()
+
+    def multipart_archive_upload(self, args, encryptor=None):
+        return self.archive_upload(args, multipart=True, encryptor=encryptor)
+
     @staticmethod
-    def _write_archive_retrieval_job(f, job, multipart_size):
+    def _write_archive_retrieval_job(f, job, multipart_size,
+                                     encryptor=None):
+        if encryptor:
+            destfile = tempfile.NamedTemporaryFile()
+        else:
+            destfile = f
+
         if job.archive_size > multipart_size:
             def fetch(start, end):
-                byte_range = start, end-1
-                f.write(job.get_output(byte_range).read())
+                byte_range = start, end - 1
+                destfile.write(job.get_output(byte_range).read())
 
             whole_parts = job.archive_size // multipart_size
             for first_byte in xrange(0, whole_parts * multipart_size,
-                                multipart_size):
+                                     multipart_size):
                 fetch(first_byte, first_byte + multipart_size)
             remainder = job.archive_size % multipart_size
             if remainder:
                 fetch(job.archive_size - remainder, job.archive_size)
         else:
-            f.write(job.get_output().read())
+            destfile.write(job.get_output().read())
 
         # Make sure that the file now exactly matches the downloaded archive,
         # even if the file existed before and was longer.
         try:
-            f.truncate(job.archive_size)
+            destfile.truncate(job.archive_size)
         except IOError, e:
-            # Allow ESPIPE, since the "file" couldn't have existed before in
-            # this case.
+            # Allow ESPIPE, since the "file" couldn't have existed
+            # before in this case.
             if e.errno != errno.ESPIPE:
                 raise
 
+        # Decrypt file if encryptor is given
+        if encryptor:
+            encryptor.decrypt_file(destfile.name, f.name)
+            destfile.close()
+
     @classmethod
-    def _archive_retrieve_completed(cls, args, job, name):
+    def _archive_retrieve_completed(cls, args, job, name, encryptor=None):
         if args.output_filename == '-':
             cls._write_archive_retrieval_job(
-                sys.stdout, job, args.multipart_size)
+                sys.stdout, job, args.multipart_size,
+                encryptor=encryptor)
         else:
             if args.output_filename:
                 filename = args.output_filename
             else:
                 filename = os.path.basename(name)
             with open(filename, 'wb') as f:
-                cls._write_archive_retrieval_job(f, job, args.multipart_size)
+                cls._write_archive_retrieval_job(f, job, args.multipart_size,
+                                                 encryptor=encryptor)
 
-    def archive_retrieve_one(self, name):
+    def archive_retrieve_one(self, name, encryptor=None):
         try:
             archive_id = self.cache.get_archive_id(self.args.vault, name)
         except KeyError:
@@ -549,30 +612,42 @@ class App(object):
 
         complete_job = find_complete_job(retrieval_jobs)
         if complete_job:
-            self._archive_retrieve_completed(self.args, complete_job, name)
+            self._archive_retrieve_completed(self.args, complete_job, name,
+                                             encryptor=encryptor)
         elif has_pending_job(retrieval_jobs):
             if self.args.wait:
                 complete_job = wait_until_job_completed(retrieval_jobs)
-                self._archive_retrieve_completed(self.args, complete_job, name)
+                self._archive_retrieve_completed(self.args, complete_job, name,
+                                                 encryptor=encryptor)
             else:
-                raise RetryConsoleError('job still pending for archive %r' % name)
+                raise RetryConsoleError('job still pending for archive %r'
+                                        % name)
         else:
             # create an archive retrieval job
             job = vault.retrieve_archive(archive_id)
             if self.args.wait:
                 wait_until_job_completed([job])
-                self._archive_retrieve_completed(self.args, job, name)
+                self._archive_retrieve_completed(self.args, job, name,
+                                                 encryptor=encryptor)
             else:
-                raise RetryConsoleError('queued retrieval job for archive %r' % name)
+                raise RetryConsoleError('queued retrieval job for archive %r'
+                                        % name)
 
-    def archive_retrieve(self):
+    def archive_retrieve(self, encryptor=None):
         if len(self.args.names) > 1 and self.args.output_filename:
-            raise ConsoleError('cannot specify output filename with multi-archive retrieval')
+            raise ConsoleError("cannot specify output filename with "
+                               "multi-archive retrieval")
         success_list = []
         retry_list = []
+
+        # Let called functions know that encryption was disabled from
+        # command-line.
+        if not self.args.decrypt:
+            encryptor = None
+
         for name in self.args.names:
             try:
-                self.archive_retrieve_one(name)
+                self.archive_retrieve_one(name, encryptor=encryptor)
             except RetryConsoleError, e:
                 retry_list.append(e.message)
             else:
@@ -606,6 +681,8 @@ class App(object):
                 return
 
         def too_old(last_seen):
+            #return not last_seen or not args.max_age_hours or (
+            #        last_seen < time.time() - args.max_age_hours * 60 * 60)
             return (not last_seen or
                     not self.args.max_age_hours or
                     (last_seen <
@@ -643,7 +720,8 @@ class App(object):
 
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--region', default='us-east-1')
+        parser.add_argument('--region', default=DEFAULT_REGION)
+
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
@@ -662,30 +740,69 @@ class App(object):
         archive_list_subparser.set_defaults(func=self.archive_list)
         archive_list_subparser.add_argument('--force-ids', action='store_true')
         archive_list_subparser.add_argument('vault')
+
+        encryptor = Encryptor()
+
+        # Upload command
+        archive_upload_func = partial(self.archive_upload, encryptor=encryptor)
         archive_upload_subparser = archive_subparser.add_parser('upload')
-        archive_upload_subparser.set_defaults(func=self.archive_upload)
+        archive_upload_subparser.set_defaults(func=archive_upload_func)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file',
-                                              type=argparse.FileType('rb'))
+        archive_upload_subparser.add_argument('file')
         archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument(
+            '--encrypt', default=False, action="store_true")
+
+        # Multipart upload command
+        multipart_archive_upload_func = partial(
+            self.archive_upload, encryptor=encryptor)
+        archive_multipart_upload_subparser = archive_subparser.add_parser(
+            'multipart_upload')
+        archive_multipart_upload_subparser.set_defaults(
+            func=multipart_archive_upload_func)
+        archive_multipart_upload_subparser.add_argument('vault')
+        archive_multipart_upload_subparser.add_argument('file')
+        archive_multipart_upload_subparser.add_argument('--name')
+        archive_multipart_upload_subparser.add_argument(
+            '--encrypt', default=False, action="store_true")
+        archive_multipart_upload_subparser.add_argument(
+            '--part-size',
+            default=DEFAULT_PART_SIZE,
+            dest="part_size"
+        )
+        archive_multipart_upload_subparser.add_argument(
+            '--num-threads',
+            default=DEFAULT_NUM_THREADS,
+            dest="num_threads"
+        )
+
+        # Retrieve command
+        archive_retrieve_func = partial(
+            self.archive_retrieve, encryptor=encryptor)
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
-        archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
+        archive_retrieve_subparser.set_defaults(func=archive_retrieve_func)
         archive_retrieve_subparser.add_argument('vault')
         archive_retrieve_subparser.add_argument('names', nargs='+',
                                                 metavar='name')
         archive_retrieve_subparser.add_argument('--multipart-size', type=int,
-                default=(8*1024*1024))
+                                                default=(8 * 1024 * 1024))
         archive_retrieve_subparser.add_argument('-o', dest='output_filename',
                                                 metavar='OUTPUT_FILENAME')
         archive_retrieve_subparser.add_argument('--wait', action='store_true')
+        archive_retrieve_subparser.add_argument(
+            '--decrypt', default=False, action="store_true")
+
+        # Delete command
         archive_delete_subparser = archive_subparser.add_parser('delete')
         archive_delete_subparser.set_defaults(func=self.archive_delete)
         archive_delete_subparser.add_argument('vault')
         archive_delete_subparser.add_argument('name')
+
+        # Checkpresent command
         archive_checkpresent_subparser = archive_subparser.add_parser(
-                'checkpresent')
+            'checkpresent')
         archive_checkpresent_subparser.set_defaults(
-                func=self.archive_checkpresent)
+            func=self.archive_checkpresent)
         archive_checkpresent_subparser.add_argument('vault')
         archive_checkpresent_subparser.add_argument('name')
         archive_checkpresent_subparser.add_argument('--wait',
@@ -693,7 +810,8 @@ class App(object):
         archive_checkpresent_subparser.add_argument('--quiet',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument(
-                '--max-age', type=int, default=80, dest='max_age_hours')
+            '--max-age', type=int, default=80, dest='max_age_hours')
+
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
         return parser.parse_args(args)
@@ -712,6 +830,7 @@ class App(object):
         self.args = args
 
     def main(self):
+
         try:
             self.args.func()
         except RetryConsoleError, e:
