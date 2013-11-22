@@ -38,6 +38,7 @@ import time
 from boto.glacier.concurrent import ConcurrentUploader
 #from boto.glacier.utils import DEFAULT_NUM_THREADS
 DEFAULT_NUM_THREADS = 1
+
 import boto.glacier
 import iso8601
 import sqlalchemy
@@ -361,7 +362,6 @@ def find_inventory_jobs(vault, max_age_hours=0):
 
 
 def find_complete_job(jobs):
-    #for job in sorted(filter(lambda job: job.completed, jobs), key=lambda job: iso8601.parse_date(job.completion_date), reverse=True):
     complete_jobs = filter(lambda job: job.completed, jobs)
 
     def most_recent_job(job):
@@ -681,8 +681,6 @@ class App(object):
                 return
 
         def too_old(last_seen):
-            #return not last_seen or not args.max_age_hours or (
-            #        last_seen < time.time() - args.max_age_hours * 60 * 60)
             return (not last_seen or
                     not self.args.max_age_hours or
                     (last_seen <
