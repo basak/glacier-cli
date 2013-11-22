@@ -524,15 +524,16 @@ class App(object):
         if self.args.encrypt:
             tmpfile = tempfile.NamedTemporaryFile()
             encryptor.encrypt_file(self.args.file, tmpfile.name)
-            filename = tmpfile
+            filename = tmpfile.name
         else:
             filename = self.args.file
 
         vault = self.connection.get_vault(self.args.vault)
 
         if not multipart:
+            file_obj=file(filename)
             archive_id = vault.create_archive_from_file(
-                file_obj=filename, description=name)
+                file_obj=file_obj, description=name)
         else:
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
