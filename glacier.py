@@ -29,6 +29,7 @@ import argparse
 import calendar
 import errno
 import itertools
+import logging
 import os
 import os.path
 import sys
@@ -60,6 +61,8 @@ DEFAULT_PART_SIZE = 4194304
 
 DEFAULT_REGION = 'us-east-1'
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('glacier-cli')
 
 class ConsoleError(RuntimeError):
     def __init__(self, m):
@@ -521,29 +524,61 @@ class App(object):
             name = os.path.basename(full_name)
 
         if self.args.encrypt:
-            tmpfile = tempfile.NamedTemporaryFile()
-            encryptor.encrypt_file(self.args.file, tmpfile.name)
-            filename = tmpfile.name
+            tmpdir = os.path.join(get_user_cache_dir(),
+                                  'glacier-cli', 
+                                  'encryption-tmp',
+                                  self.args.vault)
+            if not os.path.exists(tmpdir):
+                os.makedirs(tmpdir)
+            filename = os.path.join(tmpdir, "%s.encrypted" % self.args.name)
+            if os.path.exists(filename):
+                logger.info("Found cached encryption file %s.  "
+                            "Skipping re-encryption of " 
+                            % filename)
+            else:
+                filename_working = "%s.working.%d" % (filename, os.getpid())
+                if os.path.exists(filename_working):
+                    logger.info("cleaning up %s" % filename_working)
+                    os.remove(filename_working)
+                logger.info("encrypting %s as %s(.working)" % (self.args.file, filename))
+                try:
+                    encryptor.encrypt_file(self.args.file, filename_working)
+                    os.rename(filename_working, filename)
+                    logger.info("encryption complete: %s" % filename)
+                finally:
+                    if os.path.exists(filename_working):
+                        os.remove(filename_working)
         else:
             filename = self.args.file
 
         vault = self.connection.get_vault(self.args.vault)
 
+        logger.info("upload initiating")
+
         if not multipart:
+            logger.info("uploading in single-part %s to %s" 
+                        % (filename, vault))
             file_obj=file(filename)
             archive_id = vault.create_archive_from_file(
                 file_obj=file_obj, description=name)
         else:
+            logger.info("confirguring multi-part upload "
+                        "with part_size %d "
+                        "and num_threads %d" % (part_size, num_threads))
             uploader = ConcurrentUploader(self.connection.layer1,
-                                          vault.name,
-                                          part_size=part_size,
-                                          num_threads=num_threads)
+                                        vault.name,
+                                        part_size=part_size,
+                                        num_threads=num_threads)
+            logger.info("uploading multi-part %s to %s with %s" 
+                        % (filename, vault, uploader))
             archive_id = uploader.upload(filename, description=name)
+        
+        logger.info("upload complete")
 
         self.cache.add_archive(self.args.vault, name, archive_id)
-
+        
         if self.args.encrypt:
-            tmpfile.close()
+            os.remove(filename)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
