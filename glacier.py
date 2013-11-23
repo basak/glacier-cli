@@ -545,9 +545,6 @@ class App(object):
         if self.args.encrypt:
             tmpfile.close()
 
-    def multipart_archive_upload(self, args, encryptor=None):
-        return self.archive_upload(args, multipart=True, encryptor=encryptor)
-
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
                                      encryptor=None):
@@ -753,7 +750,7 @@ class App(object):
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
-            self.archive_upload, encryptor=encryptor)
+            self.archive_upload, encryptor=encryptor, multipart=True)
         archive_multipart_upload_subparser = archive_subparser.add_parser(
             'multipart_upload')
         archive_multipart_upload_subparser.set_defaults(
