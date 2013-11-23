@@ -36,8 +36,7 @@ import tempfile
 import time
 
 from boto.glacier.concurrent import ConcurrentUploader
-#from boto.glacier.utils import DEFAULT_NUM_THREADS
-DEFAULT_NUM_THREADS = 1
+DEFAULT_NUM_THREADS = 10
 
 import boto.glacier
 import iso8601
