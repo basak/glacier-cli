@@ -854,12 +854,6 @@ class App(object):
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
         parsed_args = parser.parse_args(args)
 
-        # Additional constraints
-        if (parsed_args.encrypt == False 
-            and parsed_args.encryption_dir is not None):
-            raise argparse.ArgumentError("--encryption-dir is invalid "
-                                         "when --encrypt is not specified.")
-
         return parsed_args
 
     def __init__(self, args=None, connection=None, cache=None):
