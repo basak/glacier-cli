@@ -61,7 +61,10 @@ DEFAULT_PART_SIZE = 4194304
 
 DEFAULT_REGION = 'us-east-1'
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 logger = logging.getLogger('glacier-cli')
 
 class ConsoleError(RuntimeError):
@@ -523,60 +526,57 @@ class App(object):
                 raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
-        if self.args.encrypt:
-            tmpdir = os.path.join(get_user_cache_dir(),
-                                  'glacier-cli', 
-                                  'encryption-tmp',
-                                  self.args.vault)
-            if not os.path.exists(tmpdir):
-                os.makedirs(tmpdir)
-            filename = os.path.join(tmpdir, "%s.encrypted" % self.args.name)
-            if os.path.exists(filename):
-                logger.info("Found cached encryption file %s.  "
-                            "Skipping re-encryption of " 
-                            % filename)
-            else:
-                filename_working = "%s.working.%d" % (filename, os.getpid())
-                if os.path.exists(filename_working):
-                    logger.info("cleaning up %s" % filename_working)
-                    os.remove(filename_working)
-                logger.info("encrypting %s as %s(.working)" % (self.args.file, filename))
-                try:
-                    encryptor.encrypt_file(self.args.file, filename_working)
-                    os.rename(filename_working, filename)
-                    logger.info("encryption complete: %s" % filename)
-                finally:
-                    if os.path.exists(filename_working):
-                        os.remove(filename_working)
-        else:
+        if self.args.encrypt is None:
             filename = self.args.file
+        else:
+            if self.args.encryption_dir is None:
+                filename = tempfile.NamedTemporaryFile().name
+                logger.info("Encrypting %s to %s."
+                            % (self.args.file, filename))
+                encryptor.encrypt_file(self.args.file, filename)
+            else:
+                filename = os.path.join(self.args.encryption_dir,
+                                        "%s.encrypted" % self.args.name)
+                if os.path.exists(filename):
+                    logger.info("Found cached encryption file %s.  "
+                                "Skipping re-encryption."
+                                % filename)
+                else:
+                    filename_working = "%s.working.%d" % (filename, os.getpid())
+                    try:
+                        logger.info("Encrypting %s to %s."
+                                    % (self.args.file, filename_working))
+                        encryptor.encrypt_file(self.args.file,
+                                               filename_working)
+                        os.rename(filename_working, filename)
+                    finally:
+                        if os.path.exists(filename_working):
+                            os.remove(filename_working)
+
+            logger.info("Encryption complete: %s." % filename)
 
         vault = self.connection.get_vault(self.args.vault)
 
-        logger.info("upload initiating")
-
         if not multipart:
-            logger.info("uploading in single-part %s to %s" 
+            logger.info("Uploading in a single part: %s to %s."
                         % (filename, vault))
             file_obj=file(filename)
             archive_id = vault.create_archive_from_file(
                 file_obj=file_obj, description=name)
         else:
-            logger.info("confirguring multi-part upload "
-                        "with part_size %d "
-                        "and num_threads %d" % (part_size, num_threads))
+            logger.info("Uploading multi-part: %s to %s"
+                        % (filename, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
-                                        vault.name,
-                                        part_size=part_size,
-                                        num_threads=num_threads)
-            logger.info("uploading multi-part %s to %s with %s" 
-                        % (filename, vault, uploader))
+                                          vault.name,
+                                          part_size=part_size,
+                                          num_threads=num_threads)
             archive_id = uploader.upload(filename, description=name)
-        
-        logger.info("upload complete")
+
+        logger.info("Upload complete.")
+        logger.info("New Archive ID: %s" % archive_id)
 
         self.cache.add_archive(self.args.vault, name, archive_id)
-        
+
         if self.args.encrypt:
             os.remove(filename)
 
@@ -782,6 +782,10 @@ class App(object):
         archive_upload_subparser.add_argument('--name')
         archive_upload_subparser.add_argument(
             '--encrypt', default=False, action="store_true")
+        archive_upload_subparser.add_argument(
+            '--encryption-dir',
+            dest='encryption_dir',
+        )
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
@@ -795,6 +799,10 @@ class App(object):
         archive_multipart_upload_subparser.add_argument('--name')
         archive_multipart_upload_subparser.add_argument(
             '--encrypt', default=False, action="store_true")
+        archive_multipart_upload_subparser.add_argument(
+            '--encryption-dir',
+            dest='encryption_dir',
+        )
         archive_multipart_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
@@ -844,7 +852,14 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        return parser.parse_args(args)
+        parsed = parser.parse_args(args)
+
+        # Additional constraints
+        if (1 == None and parsed.encrypt == False):
+            raise argparse.ArgumentError("--encryption-dir is invalid "
+                                         "when --encrypt is not specified.")
+
+        return parsed
 
     def __init__(self, args=None, connection=None, cache=None):
         args = self.parse_args(args)
