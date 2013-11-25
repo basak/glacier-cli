@@ -1,9 +1,6 @@
 import gnupg
 import os
 
-
-GNUPG_DIRECTORY = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                               "gnupg")
 GNUPG_KEY_TYPE = "RSA"
 GNUPG_KEY_LENGTH = 2048
 
@@ -11,7 +8,7 @@ GNUPG_KEY_LENGTH = 2048
 class Encryptor(object):
 
     def __init__(self):
-        self.gpg = gnupg.GPG(gnupghome=GNUPG_DIRECTORY)
+        self.gpg = gnupg.GPG()
         self.gpg.encoding = "utf-8"
         if self.gpg.list_keys() == []:
             self.generate_keypair()
