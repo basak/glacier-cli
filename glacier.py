@@ -540,7 +540,7 @@ class App(object):
         if not multipart:
             logger.info("Uploading in a single part: %s to %s."
                         % (filename, vault))
-            file_obj=file(filename)
+            file_obj = file(filename)
             archive_id = vault.create_archive_from_file(
                 file_obj = file_obj, description=name)
         else:
