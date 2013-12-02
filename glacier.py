@@ -529,30 +529,10 @@ class App(object):
         if self.args.encrypt is None:
             filename = self.args.file
         else:
-            if self.args.encryption_dir is None:
-                filename = tempfile.NamedTemporaryFile().name
-                logger.info("Encrypting %s to %s."
-                            % (self.args.file, filename))
-                encryptor.encrypt_file(self.args.file, filename)
-            else:
-                filename = os.path.join(self.args.encryption_dir,
-                                        "%s.encrypted" % self.args.name)
-                if os.path.exists(filename):
-                    logger.info("Found cached encryption file %s.  "
-                                "Skipping re-encryption."
-                                % filename)
-                else:
-                    filename_working = "%s.working.%d" % (filename, os.getpid())
-                    try:
-                        logger.info("Encrypting %s to %s."
-                                    % (self.args.file, filename_working))
-                        encryptor.encrypt_file(self.args.file,
-                                               filename_working)
-                        os.rename(filename_working, filename)
-                    finally:
-                        if os.path.exists(filename_working):
-                            os.remove(filename_working)
-
+            filename = tempfile.NamedTemporaryFile().name
+            logger.info("Encrypting %s to %s."
+                        % (self.args.file, filename))
+            encryptor.encrypt_file(self.args.file, filename)
             logger.info("Encryption complete: %s." % filename)
 
         vault = self.connection.get_vault(self.args.vault)
@@ -782,10 +762,6 @@ class App(object):
         archive_upload_subparser.add_argument('--name')
         archive_upload_subparser.add_argument(
             '--encrypt', default=False, action="store_true")
-        archive_upload_subparser.add_argument(
-            '--encryption-dir',
-            dest='encryption_dir',
-        )
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
@@ -799,10 +775,6 @@ class App(object):
         archive_multipart_upload_subparser.add_argument('--name')
         archive_multipart_upload_subparser.add_argument(
             '--encrypt', default=False, action="store_true")
-        archive_multipart_upload_subparser.add_argument(
-            '--encryption-dir',
-            dest='encryption_dir',
-        )
         archive_multipart_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
@@ -852,9 +824,7 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        parsed_args = parser.parse_args(args)
-
-        return parsed_args
+        return parser.parse_args(args)
 
     def __init__(self, args=None, connection=None, cache=None):
         args = self.parse_args(args)
