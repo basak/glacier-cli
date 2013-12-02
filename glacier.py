@@ -542,7 +542,7 @@ class App(object):
                         % (filename, vault))
             file_obj=file(filename)
             archive_id = vault.create_archive_from_file(
-                file_obj=file_obj, description=name)
+                file_obj = file_obj, description=name)
         else:
             logger.info("Uploading multi-part: %s to %s"
                         % (filename, vault))
