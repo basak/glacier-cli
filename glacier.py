@@ -29,6 +29,7 @@ import argparse
 import calendar
 import errno
 import itertools
+import logging
 import os
 import os.path
 import sys
@@ -36,7 +37,8 @@ import tempfile
 import time
 
 from boto.glacier.concurrent import ConcurrentUploader
-from boto.glacier.utils import DEFAULT_NUM_THREADS
+DEFAULT_NUM_THREADS = 10
+
 import boto.glacier
 import iso8601
 import sqlalchemy
@@ -44,7 +46,6 @@ import sqlalchemy.ext.declarative
 import sqlalchemy.orm
 
 from gpg import Encryptor
-
 
 # There is a lag between an archive being created and the archive
 # appearing on an inventory. Even if the inventory has an InventoryDate
@@ -60,6 +61,11 @@ DEFAULT_PART_SIZE = 4194304
 
 DEFAULT_REGION = 'us-east-1'
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+logger = logging.getLogger('glacier-cli')
 
 class ConsoleError(RuntimeError):
     def __init__(self, m):
@@ -126,10 +132,12 @@ class Cache(object):
 
     Session = sqlalchemy.orm.sessionmaker()
 
-    def __init__(self, key):
+    def __init__(self, key, db_path=None):
         self.key = key
-        db_path = os.path.join(get_user_cache_dir(), 'glacier-cli', 'db')
-        mkdir_p(os.path.dirname(db_path))
+        if db_path is None:
+            db_path = os.path.join(get_user_cache_dir(), 'glacier-cli', 'db')
+        if db_path != ':memory:':
+            mkdir_p(os.path.dirname(db_path))
         self.engine = sqlalchemy.create_engine('sqlite:///%s' % db_path)
         self.Base.metadata.create_all(self.engine)
         self.Session.configure(bind=self.engine)
@@ -222,6 +230,13 @@ class Cache(object):
                 yield force_id(second_archive)
                 for subsequent_archive in archive_iterator:
                     yield force_id(subsequent_archive)
+
+    def get_archive_list_with_ids(self, vault):
+        for archive in self._get_archive_list_objects(vault):
+            yield "\t".join([
+                self._archive_ref(archive, force_id=True),
+                "%s" % archive.name,
+                ])
 
     def mark_seen_upstream(
             self, vault, id, name, upstream_creation_date,
@@ -412,7 +427,7 @@ def wait_until_job_completed(jobs, sleep=600, tries=144):
 
 
 class App(object):
-    def job_list(self, args):
+    def job_list(self):
         for vault in self.connection.list_vaults():
             job_list = [job_oneline(self.connection,
                                     self.cache,
@@ -422,12 +437,12 @@ class App(object):
             if job_list:
                 print(*job_list, sep="\n")
 
-    def vault_list(self, args):
+    def vault_list(self):
         print(*[vault.name for vault in self.connection.list_vaults()],
                 sep="\n")
 
-    def vault_create(self, args):
-        self.connection.create_vault(args.name)
+    def vault_create(self):
+        self.connection.create_vault(self.args.name)
 
     def _vault_sync_reconcile(self, vault, job, fix=False):
         response = job.get_output()
@@ -466,7 +481,8 @@ class App(object):
                 raise RetryConsoleError('job still pending for inventory on %r' %
                                         vault.name)
         else:
-            job = vault.retrieve_inventory()
+            job_id = vault.retrieve_inventory()
+            job = vault.get_job(job_id)
             if wait:
                 wait_until_job_completed([job])
                 self._vault_sync_reconcile(vault, job, fix=fix)
@@ -474,19 +490,23 @@ class App(object):
                 raise RetryConsoleError('queued inventory job for %r' %
                         vault.name)
 
-    def vault_sync(self, args):
-        return self._vault_sync(vault_name=args.name,
-                                max_age_hours=args.max_age_hours,
-                                fix=args.fix,
-                                wait=args.wait)
+    def vault_sync(self):
+        return self._vault_sync(vault_name=self.args.name,
+                                max_age_hours=self.args.max_age_hours,
+                                fix=self.args.fix,
+                                wait=self.args.wait)
 
-    def archive_list(self, args):
-        archive_list = list(self.cache.get_archive_list(args.vault))
+    def archive_list(self):
+        if self.args.force_ids:
+            archive_list = list(self.cache.get_archive_list_with_ids(
+                self.args.vault))
+        else:
+            archive_list = list(self.cache.get_archive_list(self.args.vault))
+
         if archive_list:
             print(*archive_list, sep="\n")
 
     def archive_upload(self,
-                       args,
                        multipart=False,
                        encryptor=None,
                        part_size=DEFAULT_PART_SIZE,
@@ -497,41 +517,48 @@ class App(object):
         #       allowable characters are 7 bit ASCII without control codes,
         #       specifically ASCII values 32-126 decimal or 0x20-0x7E
         #       hexadecimal."
-        if args.name is not None:
-            name = args.name
+        if self.args.name is not None:
+            name = self.args.name
         else:
             try:
-                full_name = args.file
+                full_name = self.args.file.name
             except:
                 raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
-        if args.encrypt:
-            tmpfile = tempfile.NamedTemporaryFile()
-            encryptor.encrypt_file(args.file, tmpfile.name)
-            filename = tmpfile.name
+        if self.args.encrypt is None:
+            filename = self.args.file
         else:
-            filename = args.file
+            filename = tempfile.NamedTemporaryFile().name
+            logger.info("Encrypting %s to %s."
+                        % (self.args.file, filename))
+            encryptor.encrypt_file(self.args.file, filename)
+            logger.info("Encryption complete: %s." % filename)
 
-        vault = self.connection.get_vault(args.vault)
+        vault = self.connection.get_vault(self.args.vault)
 
         if not multipart:
+            logger.info("Uploading in a single part: %s to %s."
+                        % (filename, vault))
+            file_obj = file(filename)
             archive_id = vault.create_archive_from_file(
-                filename=filename, description=name)
+                file_obj = file_obj, description=name)
         else:
+            logger.info("Uploading multi-part: %s to %s"
+                        % (filename, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
                                           part_size=part_size,
                                           num_threads=num_threads)
             archive_id = uploader.upload(filename, description=name)
 
-        self.cache.add_archive(args.vault, name, archive_id)
+        logger.info("Upload complete.")
+        logger.info("New Archive ID: %s" % archive_id)
 
-        if args.encrypt:
-            tmpfile.close()
+        self.cache.add_archive(self.args.vault, name, archive_id)
 
-    def multipart_archive_upload(self, args, encryptor=None):
-        return self.archive_upload(args, multipart=True, encryptor=encryptor)
+        if self.args.encrypt:
+            os.remove(filename)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
@@ -586,23 +613,23 @@ class App(object):
                 cls._write_archive_retrieval_job(f, job, args.multipart_size,
                                                  encryptor=encryptor)
 
-    def archive_retrieve_one(self, args, name, encryptor=None):
+    def archive_retrieve_one(self, name, encryptor=None):
         try:
-            archive_id = self.cache.get_archive_id(args.vault, name)
+            archive_id = self.cache.get_archive_id(self.args.vault, name)
         except KeyError:
             raise ConsoleError('archive %r not found' % name)
 
-        vault = self.connection.get_vault(args.vault)
+        vault = self.connection.get_vault(self.args.vault)
         retrieval_jobs = find_retrieval_jobs(vault, archive_id)
 
         complete_job = find_complete_job(retrieval_jobs)
         if complete_job:
-            self._archive_retrieve_completed(args, complete_job, name,
+            self._archive_retrieve_completed(self.args, complete_job, name,
                                              encryptor=encryptor)
         elif has_pending_job(retrieval_jobs):
-            if args.wait:
+            if self.args.wait:
                 complete_job = wait_until_job_completed(retrieval_jobs)
-                self._archive_retrieve_completed(args, complete_job, name,
+                self._archive_retrieve_completed(self.args, complete_job, name,
                                                  encryptor=encryptor)
             else:
                 raise RetryConsoleError('job still pending for archive %r'
@@ -610,16 +637,16 @@ class App(object):
         else:
             # create an archive retrieval job
             job = vault.retrieve_archive(archive_id)
-            if args.wait:
+            if self.args.wait:
                 wait_until_job_completed([job])
-                self._archive_retrieve_completed(args, job, name,
+                self._archive_retrieve_completed(self.args, job, name,
                                                  encryptor=encryptor)
             else:
                 raise RetryConsoleError('queued retrieval job for archive %r'
                                         % name)
 
-    def archive_retrieve(self, args, encryptor=None):
-        if len(args.names) > 1 and args.output_filename:
+    def archive_retrieve(self, encryptor=None):
+        if len(self.args.names) > 1 and self.args.output_filename:
             raise ConsoleError("cannot specify output filename with "
                                "multi-archive retrieval")
         success_list = []
@@ -627,12 +654,12 @@ class App(object):
 
         # Let called functions know that encryption was disabled from
         # command-line.
-        if not args.decrypt:
+        if not self.args.decrypt:
             encryptor = None
 
-        for name in args.names:
+        for name in self.args.names:
             try:
-                self.archive_retrieve_one(args, name, encryptor=encryptor)
+                self.archive_retrieve_one(name, encryptor=encryptor)
             except RetryConsoleError, e:
                 retry_list.append(e.message)
             else:
@@ -641,60 +668,67 @@ class App(object):
             message_list = success_list + retry_list
             raise RetryConsoleError("\n".join(message_list))
 
-    def archive_delete(self, args):
+    def archive_delete(self):
         try:
-            archive_id = self.cache.get_archive_id(args.vault, args.name)
+            archive_id = self.cache.get_archive_id(
+                self.args.vault, self.args.name)
         except KeyError:
-            raise ConsoleError('archive %r not found' % args.name)
-        vault = self.connection.get_vault(args.vault)
+            raise ConsoleError('archive %r not found' % self.args.name)
+        vault = self.connection.get_vault(self.args.vault)
         vault.delete_archive(archive_id)
-        self.cache.delete_archive(args.vault, args.name)
+        self.cache.delete_archive(self.args.vault, self.args.name)
 
-    def archive_checkpresent(self, args):
+    def archive_checkpresent(self):
         try:
-            last_seen = self.cache.get_archive_last_seen(args.vault, args.name)
+            last_seen = self.cache.get_archive_last_seen(
+                self.args.vault, self.args.name)
         except KeyError:
-            if args.wait:
+            if self.args.wait:
                 last_seen = None
             else:
-                if not args.quiet:
-                    print('archive %r not found' % args.name, file=sys.stderr)
+                if not self.args.quiet:
+                    print(
+                        'archive %r not found' % self.args.name,
+                        file=sys.stderr)
                 return
 
         def too_old(last_seen):
-            return not last_seen or not args.max_age_hours or (
-                    last_seen < time.time() - args.max_age_hours * 60 * 60)
+            return (not last_seen or
+                    not self.args.max_age_hours or
+                    (last_seen <
+                        time.time() - self.args.max_age_hours * 60 * 60))
 
         if too_old(last_seen):
             # Not recent enough
             try:
-                self._vault_sync(vault_name=args.vault,
-                                 max_age_hours=args.max_age_hours,
+                self._vault_sync(vault_name=self.args.vault,
+                                 max_age_hours=self.args.max_age_hours,
                                  fix=False,
-                                 wait=args.wait)
+                                 wait=self.args.wait)
             except RetryConsoleError:
                 pass
             else:
                 try:
-                    last_seen = self.cache.get_archive_last_seen(args.vault,
-                                                                 args.name)
+                    last_seen = self.cache.get_archive_last_seen(
+                        self.args.vault, self.args.name)
                 except KeyError:
-                    if not args.quiet:
+                    if not self.args.quiet:
                         print(('archive %r not found, but it may ' +
                                            'not be in the inventory yet')
-                                           % args.name, file=sys.stderr)
+                                           % self.args.name, file=sys.stderr)
                     return
 
         if too_old(last_seen):
-            if not args.quiet:
+            if not self.args.quiet:
                 print(('archive %r found, but has not been seen ' +
                                    'recently enough to consider it present') %
-                                   args.name, file=sys.stderr)
+                                   self.args.name, file=sys.stderr)
             return
 
-        print(args.name)
+        print(self.args.name)
 
-    def main(self):
+
+    def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default=DEFAULT_REGION)
 
@@ -714,6 +748,7 @@ class App(object):
         archive_subparser = subparsers.add_parser('archive').add_subparsers()
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
+        archive_list_subparser.add_argument('--force-ids', action='store_true')
         archive_list_subparser.add_argument('vault')
 
         encryptor = Encryptor()
@@ -730,7 +765,7 @@ class App(object):
 
         # Multipart upload command
         multipart_archive_upload_func = partial(
-            self.archive_upload, encryptor=encryptor)
+            self.archive_upload, encryptor=encryptor, multipart=True)
         archive_multipart_upload_subparser = archive_subparser.add_parser(
             'multipart_upload')
         archive_multipart_upload_subparser.set_defaults(
@@ -789,12 +824,25 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
+        return parser.parse_args(args)
 
-        args = parser.parse_args()
-        self.connection = boto.glacier.connect_to_region(args.region)
-        self.cache = Cache(get_connection_account(self.connection))
+    def __init__(self, args=None, connection=None, cache=None):
+        args = self.parse_args(args)
+
+        if connection is None:
+            connection = boto.glacier.connect_to_region(args.region)
+
+        if cache is None:
+            cache = Cache(get_connection_account(connection))
+
+        self.connection = connection
+        self.cache = cache
+        self.args = args
+
+    def main(self):
+
         try:
-            args.func(args)
+            self.args.func()
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
