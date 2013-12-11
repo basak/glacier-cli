@@ -522,30 +522,33 @@ class App(object):
             name = os.path.basename(full_name)
 
         if self.args.encrypt:
-            filename = tempfile.NamedTemporaryFile().name
+            temp_file_name = tempfile.NamedTemporaryFile().name
             logger.info("Encrypting %s to %s."
-                        % (self.args.file, filename))
-            encryptor.encrypt_file(self.args.file, filename)
-            logger.info("Encryption complete: %s." % filename)
+                        % (self.args.file.name, temp_file_name))
+            encryptor.encrypt_file(self.args.file, temp_file_name)
+            logger.info("Encryption complete: %s." % temp_file_name)
+            file_obj = file(temp_file_name, 'rb')
+            file_name = temp_file_name
         else:
-            filename = self.args.file
+            file_obj = self.args.file
+            file_name = file_obj.name
 
         vault = self.connection.get_vault(self.args.vault)
 
         if not self.args.multipart:
             logger.info("Uploading in a single part: %s to %s."
-                        % (filename, vault))
-            file_obj = file(filename)
+                        % (file_name, vault))
             archive_id = vault.create_archive_from_file(
-                file_obj = file_obj, description=name)
+                file_obj = file_obj, description=name
+            )
         else:
             logger.info("Uploading multi-part: %s to %s"
-                        % (filename, vault))
+                        % (file_name, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
                                           part_size=self.args.part_size,
                                           num_threads=self.args.num_threads)
-            archive_id = uploader.upload(filename, description=name)
+            archive_id = uploader.upload(file_name, description=name)
 
         logger.info("Upload complete.")
         logger.info("New Archive ID: %s" % archive_id)
@@ -553,7 +556,7 @@ class App(object):
         self.cache.add_archive(self.args.vault, name, archive_id)
 
         if self.args.encrypt:
-            os.remove(filename)
+            os.remove(temp_file_name)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,

@@ -56,13 +56,12 @@ class Encryptor(object):
         """Return the fingerprint of the default key."""
         return self.gpg.list_keys()[0]["fingerprint"]
 
-    def encrypt_file(self, input_filename, output_filename):
+    def encrypt_file(self, input_file, output_filename):
         """Encrypt `input_filename` and save results as `output_filename`."""
         fingerprint = self._get_fingerprint()
 
-        with open(input_filename, "r") as input_file:
-            self.gpg.encrypt_file(input_file, fingerprint,
-                                  output=output_filename)
+        self.gpg.encrypt_file(input_file, fingerprint,
+                              output=output_filename)
 
     def encrypt(self, data):
         """Return the encrypted version of `data`."""
