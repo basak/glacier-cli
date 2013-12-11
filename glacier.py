@@ -753,7 +753,8 @@ class App(object):
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=archive_upload_func)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file')
+        archive_upload_subparser.add_argument('file',
+                                              type=argparse.FileType('rb'))
         archive_upload_subparser.add_argument(
             '--name',
             help='The description of the archive.'
