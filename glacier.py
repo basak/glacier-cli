@@ -506,12 +506,7 @@ class App(object):
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self,
-                       multipart=False,
-                       encryptor=None,
-                       part_size=DEFAULT_PART_SIZE,
-                       num_threads=DEFAULT_NUM_THREADS):
-
+    def archive_upload(self, encryptor=None):
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
@@ -526,18 +521,18 @@ class App(object):
                 raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
-        if self.args.encrypt is None:
-            filename = self.args.file
-        else:
+        if self.args.encrypt:
             filename = tempfile.NamedTemporaryFile().name
             logger.info("Encrypting %s to %s."
                         % (self.args.file, filename))
             encryptor.encrypt_file(self.args.file, filename)
             logger.info("Encryption complete: %s." % filename)
+        else:
+            filename = self.args.file
 
         vault = self.connection.get_vault(self.args.vault)
 
-        if not multipart:
+        if not self.args.multipart:
             logger.info("Uploading in a single part: %s to %s."
                         % (filename, vault))
             file_obj = file(filename)
@@ -548,8 +543,8 @@ class App(object):
                         % (filename, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
-                                          part_size=part_size,
-                                          num_threads=num_threads)
+                                          part_size=self.args.part_size,
+                                          num_threads=self.args.num_threads)
             archive_id = uploader.upload(filename, description=name)
 
         logger.info("Upload complete.")
@@ -759,31 +754,35 @@ class App(object):
         archive_upload_subparser.set_defaults(func=archive_upload_func)
         archive_upload_subparser.add_argument('vault')
         archive_upload_subparser.add_argument('file')
-        archive_upload_subparser.add_argument('--name')
         archive_upload_subparser.add_argument(
-            '--encrypt', default=False, action="store_true")
-
-        # Multipart upload command
-        multipart_archive_upload_func = partial(
-            self.archive_upload, encryptor=encryptor, multipart=True)
-        archive_multipart_upload_subparser = archive_subparser.add_parser(
-            'multipart_upload')
-        archive_multipart_upload_subparser.set_defaults(
-            func=multipart_archive_upload_func)
-        archive_multipart_upload_subparser.add_argument('vault')
-        archive_multipart_upload_subparser.add_argument('file')
-        archive_multipart_upload_subparser.add_argument('--name')
-        archive_multipart_upload_subparser.add_argument(
-            '--encrypt', default=False, action="store_true")
-        archive_multipart_upload_subparser.add_argument(
+            '--name',
+            help='The description of the archive.'
+        )
+        archive_upload_subparser.add_argument(
+            '--encrypt', default=False, action="store_true",
+            help="Encrypt before uploading using default GNUPG encryption."
+        )
+        archive_upload_subparser.add_argument(
+            '--multi-part', default=False, action="store_true",
+            dest="multipart",
+            help='Break the upload into multiple pieces '
+                 '(required for large uploads).'
+        )
+        archive_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
-            dest="part_size"
+            dest="part_size",
+            help=("For --multi-part uploads, change the "
+                  "part size from the default of %d."
+                  % DEFAULT_PART_SIZE)
         )
-        archive_multipart_upload_subparser.add_argument(
+        archive_upload_subparser.add_argument(
             '--num-threads',
             default=DEFAULT_NUM_THREADS,
-            dest="num_threads"
+            dest="num_threads",
+            help=("For --multi-part uploads, change the "
+                  "num threads from the default of %d."
+                  % DEFAULT_NUM_THREADS)
         )
 
         # Retrieve command
