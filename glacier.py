@@ -369,12 +369,12 @@ def find_inventory_jobs(vault, max_age_hours=0):
 def find_complete_job(jobs):
     complete_jobs = filter(lambda job: job.completed, jobs)
 
-    def most_recent_job(job):
+    def sortable_date(job):
         return iso8601.parse_date(job.completion_date)
 
     sorted_completed_jobs = sorted(
         complete_jobs,
-        key=most_recent_job, reverse=True
+        key=sortable_date, reverse=True
     )
 
     for job in sorted_completed_jobs:
