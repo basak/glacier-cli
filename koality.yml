@@ -8,9 +8,6 @@ setup:
 test:
   machines: 1
   scripts:
-  - codequality:
-      script: codequality
-      timeout: 60
   - unit tests:
       script: nosetests --with-xunit
       xunit: nosetests.xml
