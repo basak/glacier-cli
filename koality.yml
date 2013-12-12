@@ -1,0 +1,14 @@
+languages:
+  python: 2.7
+setup:
+- packages:
+  - pip:
+    - install requirements: requirements.txt
+    - install requirements: requirements-dev.txt
+test:
+  machines: 1
+  scripts:
+  - unit tests:
+      script: nosetests --with-xunit
+      xunit: nosetests.xml
+      timeout: 300
