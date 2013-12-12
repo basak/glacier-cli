@@ -767,7 +767,7 @@ class App(object):
             help="Encrypt before uploading using default GNUPG encryption."
         )
         archive_upload_subparser.add_argument(
-            '--multi-part', default=False, action="store_true",
+            '--multipart', default=False, action="store_true",
             dest="multipart",
             help='Break the upload into multiple pieces '
                  '(required for large uploads).'
@@ -776,7 +776,7 @@ class App(object):
             '--part-size',
             default=DEFAULT_PART_SIZE,
             dest="part_size",
-            help=("For --multi-part uploads, change the "
+            help=("For --multipart uploads, change the "
                   "part size from the default of %d."
                   % DEFAULT_PART_SIZE)
         )
@@ -784,7 +784,7 @@ class App(object):
             '--num-threads',
             default=DEFAULT_NUM_THREADS,
             dest="num_threads",
-            help=("For --multi-part uploads, change the "
+            help=("For --multipart uploads, change the "
                   "num threads from the default of %d."
                   % DEFAULT_NUM_THREADS)
         )
@@ -827,7 +827,16 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        return parser.parse_args(args)
+        parsed = parser.parse_args(args)
+
+        if (parsed.func == archive_upload_func
+            and parsed.multipart
+            and parsed.file is sys.stdin):
+                raise ConsoleError(
+                    "multipart uploads do not support streaming from stdin"
+                )
+
+        return parsed
 
     def __init__(self, args=None, connection=None, cache=None):
         args = self.parse_args(args)
