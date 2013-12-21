@@ -57,7 +57,7 @@ class Encryptor(object):
         return self.gpg.list_keys()[0]["fingerprint"]
 
     def encrypt_file(self, input_file, output_filename):
-        """Encrypt `input_filename` and save results as `output_filename`."""
+        """Encrypt `input_file` (handle) and save results as `output_filename`."""
         fingerprint = self._get_fingerprint()
 
         self.gpg.encrypt_file(input_file, fingerprint,
