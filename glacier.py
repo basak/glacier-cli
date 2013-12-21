@@ -859,7 +859,16 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        return parser.parse_args(args)
+        parsed = parser.parse_args(args)
+
+        if (parsed.func == archive_upload_func
+            and parsed.multipart
+            and parsed.file is sys.stdin):
+                raise ConsoleError(
+                    "multipart uploads do not support streaming from stdin"
+                )
+
+        return parsed
 
     def __init__(self, args=None, connection=None, cache=None):
         args = self.parse_args(args)

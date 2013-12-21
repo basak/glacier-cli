@@ -23,6 +23,7 @@
 
 from __future__ import print_function
 
+from os import environ 
 import sys
 import unittest
 
@@ -37,6 +38,15 @@ EX_TEMPFAIL = 75
 
 
 class TestCase(unittest.TestCase):
+    def setUp(self):
+        self.orig_gnupghome = environ.get('gnupg_test_home')
+        environ['GNUPGHOME'] = "gnupg_test_home"
+        patch('glacier.Encryptor', autospec=True)
+
+    def tearDown(self):
+        if self.orig_gnupghome is not None:
+            environ['GNUPGHOME'] = self.orig_gnupghome 
+
     def init_app(self, args, memory_cache=False):
         self.connection = Mock()
         if memory_cache:
@@ -106,39 +116,37 @@ class TestCase(unittest.TestCase):
         )
 
     def test_archive_upload(self):
-        for multipart in (False, ):
-            for encrypt in (False, True):
-                args = ['archive', 'upload', 'vault_name', 'filename']
-                if multipart:
-                    args.append('--multi-part')
-                if encrypt:
-                    args.append('--encrypt')
-                file_obj = Mock()
-                file_obj.name = 'filename'
-                open_mock = Mock(return_value=file_obj)
-                with patch('__builtin__.open', open_mock):
-                    self.run_app(args)
-                self.connection.get_vault.assert_called_with('vault_name')
-                mock_vault = self.connection.get_vault.return_value
-                if multipart:
-                    pass
-                else:
-                    mock_vault.create_archive_from_file.assert_called_once_with(
-                        file_obj=file_obj, description='filename')
+        args = ['archive', 'upload', 'vault_name', 'filename', '--name', 'filename']
+        file_obj = Mock()
+        file_obj.name = 'filename'
+        open_mock = Mock(return_value=file_obj)
+        with patch('__builtin__.open', open_mock):
+            self.run_app(args)
+        self.connection.get_vault.assert_called_with('vault_name')
+        mock_vault = self.connection.get_vault.return_value
+        mock_vault.create_archive_from_file.assert_called_once_with(
+            file_obj=file_obj, description='filename')
 
     def test_archive_stdin_upload(self):
-        for multipart in (False, ):
-            for encrypt in (False, ):
-                args = ['archive', 'upload', 'vault_name', '-']
-                if multipart:
-                    args.append('--multi-part')
-                if encrypt:
-                    args.append('--encrypt')
-                self.run_app(args)
-                self.connection.get_vault.assert_called_once_with('vault_name')
-                vault = self.connection.get_vault.return_value
-                vault.create_archive_from_file.assert_called_once_with(
-                    file_obj=sys.stdin, description='<stdin>')
+        args = ['archive', 'upload', 'vault_name', '-','--name', '<stdin>']
+        self.run_app(args)
+        self.connection.get_vault.assert_called_once_with('vault_name')
+        vault = self.connection.get_vault.return_value
+        vault.create_archive_from_file.assert_called_once_with(
+            file_obj=sys.stdin, description='<stdin>')
+
+    def test_archive_upload_concurrent(self):
+        args = ['archive', 'upload', 'vault_name', 'filename', '--name', 'filename']
+        args.append('--concurrent')
+        file_obj = Mock()
+        file_obj.name = 'filename'
+        open_mock = Mock(return_value=file_obj)
+        with patch('__builtin__.open', open_mock), \
+            patch('glacier.ConcurrentUploader'), \
+            patch('glacier.ConcurrentUploader.upload', return_value=123):
+            self.run_app(args)
+            glacier.ConcurrentUploader.upload.assert_called_once()
+        self.connection.get_vault.assert_called_with('vault_name')
 
     def test_archive_retrieve_no_job(self):
         self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])
