@@ -566,15 +566,15 @@ class App(object):
         else:
             destfile = f
 
-        if self.args.concurrent:
-            downloader = ConcurrentDownloader(
-                job=job,
-                part_size=self.args.part_size,
-                num_threads=self.args.num_threads
-            )
-            downloader.download(destfile.name)
-        else:
             if job.archive_size > multipart_size:
+                downloader = ConcurrentDownloader(
+                    job=job,
+                    part_size=DEFAULT_PART_SIZE,
+                    num_threads=DEFAULT_NUM_THREADS
+                )
+                downloader.download(destfile.name)
+
+                """
                 def fetch(start, end):
                     byte_range = start, end - 1
                     destfile.write(job.get_output(byte_range).read())
@@ -586,6 +586,7 @@ class App(object):
                 remainder = job.archive_size % multipart_size
                 if remainder:
                     fetch(job.archive_size - remainder, job.archive_size)
+                """
             else:
                 destfile.write(job.get_output().read())
 
@@ -812,27 +813,6 @@ class App(object):
         archive_retrieve_subparser.add_argument('--wait', action='store_true')
         archive_retrieve_subparser.add_argument(
             '--decrypt', default=False, action="store_true")
-        archive_retrieve_subparser.add_argument(
-            '--concurrent', default=False, action="store_true",
-            dest="concurrent",
-            help='Break the download into multiple parallel threads'
-        )
-        archive_retrieve_subparser.add_argument(
-            '--part-size',
-            default=DEFAULT_PART_SIZE,
-            dest="part_size",
-            help=("For --concurrent downloads, change the "
-                  "part size from the default of %d."
-                  % DEFAULT_PART_SIZE)
-        )
-        archive_retrieve_subparser.add_argument(
-            '--num-threads',
-            default=DEFAULT_NUM_THREADS,
-            dest="num_threads",
-            help=("For --concurrent downloads, change the "
-                  "num threads from the default of %d."
-                  % DEFAULT_NUM_THREADS)
-        )
 
 
         # Delete command
@@ -860,10 +840,10 @@ class App(object):
         parsed = parser.parse_args(args)
 
         if (parsed.func == archive_upload_func
-            and parsed.multipart
+            and parsed.concurrent
             and parsed.file is sys.stdin):
                 raise ConsoleError(
-                    "multipart uploads do not support streaming from stdin"
+                    "concurrent uploads do not support streaming from stdin"
                 )
 
         return parsed
