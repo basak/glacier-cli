@@ -142,10 +142,10 @@ class TestCase(unittest.TestCase):
         file_obj.name = 'filename'
         open_mock = Mock(return_value=file_obj)
         with patch('__builtin__.open', open_mock), \
-            patch('glacier.ConcurrentUploader'), \
-            patch('glacier.ConcurrentUploader.upload', return_value=123):
-            self.run_app(args)
-            glacier.ConcurrentUploader.upload.assert_called_once()
+             patch('glacier.ConcurrentUploader'), \
+             patch('glacier.ConcurrentUploader.upload', return_value=123):
+                self.run_app(args)
+                glacier.ConcurrentUploader.upload.assert_called_once()
         self.connection.get_vault.assert_called_with('vault_name')
 
     def test_archive_retrieve_no_job(self):
