@@ -523,13 +523,11 @@ class App(object):
             name = os.path.basename(full_name)
 
         if self.args.encrypt:
-            temp_file_name = tempfile.NamedTemporaryFile().name
-            logger.info("Encrypting %s to %s."
-                        % (self.args.file.name, temp_file_name))
-            encryptor.encrypt_file(self.args.file, temp_file_name)
-            logger.info("Encryption complete: %s." % temp_file_name)
-            file_obj = file(temp_file_name, 'rb')
-            file_name = temp_file_name
+            file_obj = tempfile.NamedTemporaryFile()
+            file_name = file_obj.name
+            logger.info("Encrypting %s to %s." % (self.args.file, file_name))
+            encryptor.encrypt_file(self.args.file, file_name)
+            logger.info("Encryption complete: %s." % file_name)
         else:
             file_obj = self.args.file
             file_name = file_obj.name
@@ -557,7 +555,7 @@ class App(object):
         self.cache.add_archive(self.args.vault, name, archive_id)
 
         if self.args.encrypt:
-            os.remove(temp_file_name)
+            os.remove(file_name)
 
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
