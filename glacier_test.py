@@ -106,8 +106,7 @@ class TestCase(unittest.TestCase):
         )
 
     def test_archive_upload(self):
-
-        for multipart in (False, True):
+        for multipart in (False, ):
             for encrypt in (False, True):
                 args = ['archive', 'upload', 'vault_name', 'filename']
                 if multipart:
@@ -121,18 +120,21 @@ class TestCase(unittest.TestCase):
                     self.run_app(args)
                 self.connection.get_vault.assert_called_with('vault_name')
                 mock_vault = self.connection.get_vault.return_value
-                mock_vault.create_archive_from_file.assert_called_once_with(
-                    file_obj=file_obj, description='filename')
+                if multipart:
+                    pass
+                else:
+                    mock_vault.create_archive_from_file.assert_called_once_with(
+                        file_obj=file_obj, description='filename')
 
     def test_archive_stdin_upload(self):
-        for multipart in (False, True):
-            for encrypt in (False, True):
-                args = ['archive', 'upload', 'vault_name', 'filename']
+        for multipart in (False, ):
+            for encrypt in (False, ):
+                args = ['archive', 'upload', 'vault_name', '-']
                 if multipart:
                     args.append('--multi-part')
                 if encrypt:
                     args.append('--encrypt')
-                self.run_app()
+                self.run_app(args)
                 self.connection.get_vault.assert_called_once_with('vault_name')
                 vault = self.connection.get_vault.return_value
                 vault.create_archive_from_file.assert_called_once_with(
