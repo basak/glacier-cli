@@ -36,6 +36,7 @@ import sys
 import tempfile
 import time
 
+from boto.glacier.concurrent import ConcurrentDownloader
 from boto.glacier.concurrent import ConcurrentUploader
 DEFAULT_NUM_THREADS = 10
 
@@ -535,14 +536,14 @@ class App(object):
 
         vault = self.connection.get_vault(self.args.vault)
 
-        if not self.args.multipart:
+        if not self.args.concurrent:
             logger.info("Uploading in a single part: %s to %s."
                         % (file_name, vault))
             archive_id = vault.create_archive_from_file(
                 file_obj = file_obj, description=name
             )
         else:
-            logger.info("Uploading multi-part: %s to %s"
+            logger.info("Uploading concurrent: %s to %s"
                         % (file_name, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
@@ -561,35 +562,44 @@ class App(object):
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
                                      encryptor=None):
+
         if encryptor:
             destfile = tempfile.NamedTemporaryFile()
         else:
             destfile = f
 
-        if job.archive_size > multipart_size:
-            def fetch(start, end):
-                byte_range = start, end - 1
-                destfile.write(job.get_output(byte_range).read())
-
-            whole_parts = job.archive_size // multipart_size
-            for first_byte in xrange(0, whole_parts * multipart_size,
-                                     multipart_size):
-                fetch(first_byte, first_byte + multipart_size)
-            remainder = job.archive_size % multipart_size
-            if remainder:
-                fetch(job.archive_size - remainder, job.archive_size)
+        if self.args.concurrent:
+            downloader = ConcurrentDownloader(
+                job=job,
+                part_size=self.args.part_size,
+                num_threads=self.args.num_threads
+            )
+            downloader.download(destfile.name)
         else:
-            destfile.write(job.get_output().read())
+            if job.archive_size > multipart_size:
+                def fetch(start, end):
+                    byte_range = start, end - 1
+                    destfile.write(job.get_output(byte_range).read())
 
-        # Make sure that the file now exactly matches the downloaded archive,
-        # even if the file existed before and was longer.
-        try:
-            destfile.truncate(job.archive_size)
-        except IOError, e:
-            # Allow ESPIPE, since the "file" couldn't have existed
-            # before in this case.
-            if e.errno != errno.ESPIPE:
-                raise
+                whole_parts = job.archive_size // multipart_size
+                for first_byte in xrange(0, whole_parts * multipart_size,
+                                        multipart_size):
+                    fetch(first_byte, first_byte + multipart_size)
+                remainder = job.archive_size % multipart_size
+                if remainder:
+                    fetch(job.archive_size - remainder, job.archive_size)
+            else:
+                destfile.write(job.get_output().read())
+
+            # Make sure that the file now exactly matches the downloaded archive,
+            # even if the file existed before and was longer.
+            try:
+                destfile.truncate(job.archive_size)
+            except IOError, e:
+                # Allow ESPIPE, since the "file" couldn't have existed
+                # before in this case.
+                if e.errno != errno.ESPIPE:
+                    raise
 
         # Decrypt file if encryptor is given
         if encryptor:
@@ -767,8 +777,8 @@ class App(object):
             help="Encrypt before uploading using default GNUPG encryption."
         )
         archive_upload_subparser.add_argument(
-            '--multi-part', default=False, action="store_true",
-            dest="multipart",
+            '--concurrent', default=False, action="store_true",
+            dest="concurrent",
             help='Break the upload into multiple pieces '
                  '(required for large uploads).'
         )
@@ -776,7 +786,7 @@ class App(object):
             '--part-size',
             default=DEFAULT_PART_SIZE,
             dest="part_size",
-            help=("For --multi-part uploads, change the "
+            help=("For --concurrent uploads, change the "
                   "part size from the default of %d."
                   % DEFAULT_PART_SIZE)
         )
@@ -784,7 +794,7 @@ class App(object):
             '--num-threads',
             default=DEFAULT_NUM_THREADS,
             dest="num_threads",
-            help=("For --multi-part uploads, change the "
+            help=("For --concurrent uploads, change the "
                   "num threads from the default of %d."
                   % DEFAULT_NUM_THREADS)
         )
@@ -804,6 +814,28 @@ class App(object):
         archive_retrieve_subparser.add_argument('--wait', action='store_true')
         archive_retrieve_subparser.add_argument(
             '--decrypt', default=False, action="store_true")
+        archive_retrieve_subparser.add_argument(
+            '--concurrent', default=False, action="store_true",
+            dest="concurrent",
+            help='Break the download into multiple parallel threads'
+        )
+        archive_retrieve_subparser.add_argument(
+            '--part-size',
+            default=DEFAULT_PART_SIZE,
+            dest="part_size",
+            help=("For --concurrent downloads, change the "
+                  "part size from the default of %d."
+                  % DEFAULT_PART_SIZE)
+        )
+        archive_retrieve_subparser.add_argument(
+            '--num-threads',
+            default=DEFAULT_NUM_THREADS,
+            dest="num_threads",
+            help=("For --concurrent downloads, change the "
+                  "num threads from the default of %d."
+                  % DEFAULT_NUM_THREADS)
+        )
+
 
         # Delete command
         archive_delete_subparser = archive_subparser.add_parser('delete')
