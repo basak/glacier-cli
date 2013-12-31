@@ -110,7 +110,7 @@ class TestCase(unittest.TestCase):
             for encrypt in (False, ):
                 args = ['archive', 'upload', 'vault_name', 'filename']
                 if multipart:
-                    args.append('--multi-part')
+                    args.append('--concurrent')
                 if encrypt:
                     args.append('--encrypt')
                 file_obj = Mock()
