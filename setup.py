@@ -1,5 +1,5 @@
 from setuptools import setup
-
+from pip.req import parse_requirements
 
 setup(
     name='counsyl-glacier-cli',
@@ -15,10 +15,10 @@ setup(
     py_modules=['glacier', 'gpg'],
     zip_safe=False,
     install_requires=[
-        'boto',
-        'iso8601',
-        'sqlalchemy',
-        'python-gnupg',
+        str(req.req) for req in parse_requirements('requirements.txt')
+    ],
+    tests_require=[
+        str(req.req) for req in parse_requirements('requirements-dev.txt')
     ],
     classifiers=(
         "Development Status :: 3 - Alpha",
