@@ -9,6 +9,6 @@ test:
   machines: 1
   scripts:
   - unit tests:
-      script: nosetests --with-xunit
+      script: nosetests --with-xunit glacier_test.py
       xunit: nosetests.xml
       timeout: 300
