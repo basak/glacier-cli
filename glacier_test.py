@@ -29,6 +29,7 @@ import unittest
 import mock
 from mock import Mock, patch, sentinel
 import nose.tools
+from tempfile import gettempdir
 
 import glacier
 
@@ -122,7 +123,7 @@ class TestCase(unittest.TestCase):
             call_args = mock_vault.create_archive_from_file.call_args
             uploaded_name = call_args[1]['file_obj'].name
             if encrypt:
-                nose.tools.assert_equals(uploaded_name.find('/tmp'), 0)
+                nose.tools.assert_equals(uploaded_name.find(gettempdir()), 0)
             else:
                 nose.tools.assert_equals(uploaded_name, 'glacier_test.input')
     
@@ -148,7 +149,7 @@ class TestCase(unittest.TestCase):
 
             call_args = upload_mock.call_args
             if encrypt:
-                nose.tools.assert_equals(call_args[0][0].find('/tmp'), 0)
+                nose.tools.assert_equals(call_args[0][0].find(gettempdir()), 0)
             else:
                 nose.tools.assert_equals(call_args[0][0], 'glacier_test.input')
             nose.tools.assert_equals(call_args[1]['description'], 'glacier_test.input')
