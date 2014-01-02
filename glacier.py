@@ -554,9 +554,6 @@ class App(object):
 
         self.cache.add_archive(self.args.vault, name, archive_id)
 
-        if self.args.encrypt:
-            os.remove(file_name)
-
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
                                      encryptor=None):
