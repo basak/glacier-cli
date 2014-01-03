@@ -23,6 +23,7 @@
 
 from __future__ import print_function
 
+import os
 import sys
 import unittest
 
@@ -33,6 +34,7 @@ from tempfile import gettempdir
 
 import glacier
 
+os.environ['GNUPGHOME']='gnupg_test_home' 
 
 EX_TEMPFAIL = 75
 
