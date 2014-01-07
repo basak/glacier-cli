@@ -157,20 +157,24 @@ class TestCase(unittest.TestCase):
             nose.tools.assert_equals(call_args[1]['description'], 'glacier_test.input')
 
     def test_archive_stdin_upload(self):
-        # NOTE: concurrency and encryption are not 
-        # currently supported when streaming fron stdin.
-        for concurrent in (False, ):
-            for encrypt in (False, ):
+        for concurrent in (False, True):
+            for encrypt in (False, True):
                 args = ['archive', 'upload', 'vault_name', '-']
                 if concurrent:
                     args.append('--concurrent')
                 if encrypt:
                     args.append('--encrypt')
-                self.run_app(args)
-                self.connection.get_vault.assert_called_once_with('vault_name')
-                vault = self.connection.get_vault.return_value
-                vault.create_archive_from_file.assert_called_once_with(
-                    file_obj=sys.stdin, description='<stdin>')
+                if concurrent or encrypt:
+                    # NOTE: concurrency and encryption are not 
+                    # currently supported when streaming fron stdin.
+                    nose.tools.assert_raises(Exception,
+                                             self.run_app, args)
+                else:
+                    self.run_app(args)
+                    self.connection.get_vault.assert_called_once_with('vault_name')
+                    vault = self.connection.get_vault.return_value
+                    vault.create_archive_from_file.assert_called_once_with(
+                        file_obj=sys.stdin, description='<stdin>')
 
     def test_archive_retrieve_no_job(self):
         self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])

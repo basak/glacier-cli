@@ -823,11 +823,15 @@ class App(object):
         parsed = parser.parse_args(args)
 
         if (parsed.func == archive_upload_func
-            and parsed.concurrent
             and parsed.file is sys.stdin):
-                raise ConsoleError(
-                    "concurrent uploads do not support streaming from stdin"
-                )
+                if parsed.concurrent:
+                    raise ConsoleError(
+                        "concurrent uploads do not support streaming from stdin"
+                    )
+                if parsed.encrypt:
+                    raise ConsoleError(
+                        "encrypted uploads do not support streaming from stdin"
+                    )
 
         return parsed
 
