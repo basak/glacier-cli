@@ -566,24 +566,10 @@ class App(object):
         if job.archive_size > multipart_size:
             downloader = ConcurrentDownloader(
                 job=job,
-                part_size=DEFAULT_PART_SIZE,
+                part_size=multipart_size,
                 num_threads=DEFAULT_NUM_THREADS
             )
             downloader.download(destfile.name)
-
-            """
-            def fetch(start, end):
-                byte_range = start, end - 1
-                destfile.write(job.get_output(byte_range).read())
-
-            whole_parts = job.archive_size // multipart_size
-            for first_byte in xrange(0, whole_parts * multipart_size,
-                                    multipart_size):
-                fetch(first_byte, first_byte + multipart_size)
-            remainder = job.archive_size % multipart_size
-            if remainder:
-                fetch(job.archive_size - remainder, job.archive_size)
-            """
         else:
             destfile.write(job.get_output().read())
 
