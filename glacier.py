@@ -563,39 +563,39 @@ class App(object):
         else:
             destfile = f
 
-            if job.archive_size > multipart_size:
-                downloader = ConcurrentDownloader(
-                    job=job,
-                    part_size=DEFAULT_PART_SIZE,
-                    num_threads=DEFAULT_NUM_THREADS
-                )
-                downloader.download(destfile.name)
+        if job.archive_size > multipart_size:
+            downloader = ConcurrentDownloader(
+                job=job,
+                part_size=DEFAULT_PART_SIZE,
+                num_threads=DEFAULT_NUM_THREADS
+            )
+            downloader.download(destfile.name)
 
-                """
-                def fetch(start, end):
-                    byte_range = start, end - 1
-                    destfile.write(job.get_output(byte_range).read())
+            """
+            def fetch(start, end):
+                byte_range = start, end - 1
+                destfile.write(job.get_output(byte_range).read())
 
-                whole_parts = job.archive_size // multipart_size
-                for first_byte in xrange(0, whole_parts * multipart_size,
-                                        multipart_size):
-                    fetch(first_byte, first_byte + multipart_size)
-                remainder = job.archive_size % multipart_size
-                if remainder:
-                    fetch(job.archive_size - remainder, job.archive_size)
-                """
-            else:
-                destfile.write(job.get_output().read())
+            whole_parts = job.archive_size // multipart_size
+            for first_byte in xrange(0, whole_parts * multipart_size,
+                                    multipart_size):
+                fetch(first_byte, first_byte + multipart_size)
+            remainder = job.archive_size % multipart_size
+            if remainder:
+                fetch(job.archive_size - remainder, job.archive_size)
+            """
+        else:
+            destfile.write(job.get_output().read())
 
-            # Make sure that the file now exactly matches the downloaded archive,
-            # even if the file existed before and was longer.
-            try:
-                destfile.truncate(job.archive_size)
-            except IOError, e:
-                # Allow ESPIPE, since the "file" couldn't have existed
-                # before in this case.
-                if e.errno != errno.ESPIPE:
-                    raise
+        # Make sure that the file now exactly matches the downloaded archive,
+        # even if the file existed before and was longer.
+        try:
+            destfile.truncate(job.archive_size)
+        except IOError, e:
+            # Allow ESPIPE, since the "file" couldn't have existed
+            # before in this case.
+            if e.errno != errno.ESPIPE:
+                raise
 
         # Decrypt file if encryptor is given
         if encryptor:
