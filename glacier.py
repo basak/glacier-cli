@@ -555,7 +555,7 @@ class App(object):
         self.cache.add_archive(self.args.vault, name, archive_id)
 
     @staticmethod
-    def _write_archive_retrieval_job(f, job, multipart_size,
+    def _write_archive_retrieval_job(f, job, part_size,
                                      encryptor=None):
 
         if encryptor:
@@ -563,10 +563,10 @@ class App(object):
         else:
             destfile = f
 
-        if job.archive_size > multipart_size:
+        if job.archive_size > part_size:
             downloader = ConcurrentDownloader(
                 job=job,
-                part_size=multipart_size,
+                part_size=part_size,
                 num_threads=DEFAULT_NUM_THREADS
             )
             downloader.download(destfile.name)
@@ -592,7 +592,7 @@ class App(object):
     def _archive_retrieve_completed(cls, args, job, name, encryptor=None):
         if args.output_filename == '-':
             cls._write_archive_retrieval_job(
-                sys.stdout, job, args.multipart_size,
+                sys.stdout, job, args.part_size,
                 encryptor=encryptor)
         else:
             if args.output_filename:
@@ -600,7 +600,7 @@ class App(object):
             else:
                 filename = os.path.basename(name)
             with open(filename, 'wb') as f:
-                cls._write_archive_retrieval_job(f, job, args.multipart_size,
+                cls._write_archive_retrieval_job(f, job, args.part_size,
                                                  encryptor=encryptor)
 
     def archive_retrieve_one(self, name, encryptor=None):
@@ -788,7 +788,7 @@ class App(object):
         archive_retrieve_subparser.add_argument('vault')
         archive_retrieve_subparser.add_argument('names', nargs='+',
                                                 metavar='name')
-        archive_retrieve_subparser.add_argument('--multipart-size', type=int,
+        archive_retrieve_subparser.add_argument('--part-size', type=int,
                                                 default=(8 * 1024 * 1024))
         archive_retrieve_subparser.add_argument('-o', dest='output_filename',
                                                 metavar='OUTPUT_FILENAME')
