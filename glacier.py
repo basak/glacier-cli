@@ -36,6 +36,7 @@ import sys
 import tempfile
 import time
 
+from boto.glacier.concurrent import ConcurrentDownloader
 from boto.glacier.concurrent import ConcurrentUploader
 DEFAULT_NUM_THREADS = 10
 
@@ -369,12 +370,12 @@ def find_inventory_jobs(vault, max_age_hours=0):
 def find_complete_job(jobs):
     complete_jobs = filter(lambda job: job.completed, jobs)
 
-    def most_recent_job(job):
+    def sortable_date(job):
         return iso8601.parse_date(job.completion_date)
 
     sorted_completed_jobs = sorted(
         complete_jobs,
-        key=most_recent_job, reverse=True
+        key=sortable_date, reverse=True
     )
 
     for job in sorted_completed_jobs:
@@ -506,12 +507,7 @@ class App(object):
         if archive_list:
             print(*archive_list, sep="\n")
 
-    def archive_upload(self,
-                       multipart=False,
-                       encryptor=None,
-                       part_size=DEFAULT_PART_SIZE,
-                       num_threads=DEFAULT_NUM_THREADS):
-
+    def archive_upload(self, encryptor=None):
         # XXX: "Leading whitespace in archive descriptions is removed."
         # XXX: "The description must be less than or equal to 1024 bytes. The
         #       allowable characters are 7 bit ASCII without control codes,
@@ -526,60 +522,54 @@ class App(object):
                 raise RuntimeError("Archive name not specified. Use --name.")
             name = os.path.basename(full_name)
 
-        if self.args.encrypt is None:
-            filename = self.args.file
+        if self.args.encrypt:
+            file_obj = tempfile.NamedTemporaryFile()
+            file_name = file_obj.name
+            logger.info("Encrypting %s to %s." % (self.args.file, file_name))
+            encryptor.encrypt_file(self.args.file, file_name)
+            logger.info("Encryption complete: %s." % file_name)
         else:
-            filename = tempfile.NamedTemporaryFile().name
-            logger.info("Encrypting %s to %s."
-                        % (self.args.file, filename))
-            encryptor.encrypt_file(self.args.file, filename)
-            logger.info("Encryption complete: %s." % filename)
+            file_obj = self.args.file
+            file_name = file_obj.name
 
         vault = self.connection.get_vault(self.args.vault)
 
-        if not multipart:
+        if not self.args.concurrent:
             logger.info("Uploading in a single part: %s to %s."
-                        % (filename, vault))
-            file_obj = file(filename)
+                        % (file_name, vault))
             archive_id = vault.create_archive_from_file(
-                file_obj = file_obj, description=name)
+                file_obj = file_obj, description=name
+            )
         else:
-            logger.info("Uploading multi-part: %s to %s"
-                        % (filename, vault))
+            logger.info("Uploading concurrent: %s to %s"
+                        % (file_name, vault))
             uploader = ConcurrentUploader(self.connection.layer1,
                                           vault.name,
-                                          part_size=part_size,
-                                          num_threads=num_threads)
-            archive_id = uploader.upload(filename, description=name)
+                                          part_size=self.args.part_size,
+                                          num_threads=self.args.num_threads)
+            archive_id = uploader.upload(file_name, description=name)
 
         logger.info("Upload complete.")
         logger.info("New Archive ID: %s" % archive_id)
 
         self.cache.add_archive(self.args.vault, name, archive_id)
 
-        if self.args.encrypt:
-            os.remove(filename)
-
     @staticmethod
     def _write_archive_retrieval_job(f, job, multipart_size,
                                      encryptor=None):
+
         if encryptor:
             destfile = tempfile.NamedTemporaryFile()
         else:
             destfile = f
 
         if job.archive_size > multipart_size:
-            def fetch(start, end):
-                byte_range = start, end - 1
-                destfile.write(job.get_output(byte_range).read())
-
-            whole_parts = job.archive_size // multipart_size
-            for first_byte in xrange(0, whole_parts * multipart_size,
-                                     multipart_size):
-                fetch(first_byte, first_byte + multipart_size)
-            remainder = job.archive_size % multipart_size
-            if remainder:
-                fetch(job.archive_size - remainder, job.archive_size)
+            downloader = ConcurrentDownloader(
+                job=job,
+                part_size=multipart_size,
+                num_threads=DEFAULT_NUM_THREADS
+            )
+            downloader.download(destfile.name)
         else:
             destfile.write(job.get_output().read())
 
@@ -727,7 +717,6 @@ class App(object):
 
         print(self.args.name)
 
-
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default=DEFAULT_REGION)
@@ -758,32 +747,37 @@ class App(object):
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=archive_upload_func)
         archive_upload_subparser.add_argument('vault')
-        archive_upload_subparser.add_argument('file')
-        archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument('file',
+                                              type=argparse.FileType('rb'))
         archive_upload_subparser.add_argument(
-            '--encrypt', default=False, action="store_true")
-
-        # Multipart upload command
-        multipart_archive_upload_func = partial(
-            self.archive_upload, encryptor=encryptor, multipart=True)
-        archive_multipart_upload_subparser = archive_subparser.add_parser(
-            'multipart_upload')
-        archive_multipart_upload_subparser.set_defaults(
-            func=multipart_archive_upload_func)
-        archive_multipart_upload_subparser.add_argument('vault')
-        archive_multipart_upload_subparser.add_argument('file')
-        archive_multipart_upload_subparser.add_argument('--name')
-        archive_multipart_upload_subparser.add_argument(
-            '--encrypt', default=False, action="store_true")
-        archive_multipart_upload_subparser.add_argument(
+            '--name',
+            help='The description of the archive.'
+        )
+        archive_upload_subparser.add_argument(
+            '--encrypt', default=False, action="store_true",
+            help="Encrypt before uploading using default GNUPG encryption."
+        )
+        archive_upload_subparser.add_argument(
+            '--concurrent', default=False, action="store_true",
+            dest="concurrent",
+            help='Break the upload into multiple pieces '
+                 '(required for large uploads).'
+        )
+        archive_upload_subparser.add_argument(
             '--part-size',
             default=DEFAULT_PART_SIZE,
-            dest="part_size"
+            dest="part_size",
+            help=("For --concurrent uploads, change the "
+                  "part size from the default of %d."
+                  % DEFAULT_PART_SIZE)
         )
-        archive_multipart_upload_subparser.add_argument(
+        archive_upload_subparser.add_argument(
             '--num-threads',
             default=DEFAULT_NUM_THREADS,
-            dest="num_threads"
+            dest="num_threads",
+            help=("For --concurrent uploads, change the "
+                  "num threads from the default of %d."
+                  % DEFAULT_NUM_THREADS)
         )
 
         # Retrieve command
@@ -824,7 +818,20 @@ class App(object):
 
         job_subparser = subparsers.add_parser('job').add_subparsers()
         job_subparser.add_parser('list').set_defaults(func=self.job_list)
-        return parser.parse_args(args)
+        parsed = parser.parse_args(args)
+
+        if (parsed.func == archive_upload_func
+            and parsed.file is sys.stdin):
+                if parsed.concurrent:
+                    raise ConsoleError(
+                        "concurrent uploads do not support streaming stdin"
+                    )
+                if parsed.encrypt:
+                    raise ConsoleError(
+                        "encrypted uploads do not support streaming stdin"
+                    )
+
+        return parsed
 
     def __init__(self, args=None, connection=None, cache=None):
         args = self.parse_args(args)

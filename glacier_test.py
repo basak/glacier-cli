@@ -23,15 +23,18 @@
 
 from __future__ import print_function
 
+import os
 import sys
 import unittest
 
 import mock
 from mock import Mock, patch, sentinel
 import nose.tools
+from tempfile import gettempdir
 
 import glacier
 
+os.environ['GNUPGHOME'] = 'gnupg_test_home'
 
 EX_TEMPFAIL = 75
 
@@ -106,22 +109,79 @@ class TestCase(unittest.TestCase):
         )
 
     def test_archive_upload(self):
-        file_obj = Mock()
-        file_obj.name = 'filename'
-        open_mock = Mock(return_value=file_obj)
-        with patch('__builtin__.open', open_mock):
-            self.run_app(['archive', 'upload', 'vault_name', 'filename'])
-        self.connection.get_vault.assert_called_with('vault_name')
-        mock_vault = self.connection.get_vault.return_value
-        mock_vault.create_archive_from_file.assert_called_once_with(
-            file_obj=file_obj, description='filename')
+        for encrypt in (False, True):
+            args = ['archive',
+                    'upload',
+                    'vault_name',
+                    'glacier_test.input',
+                    '--name',
+                    'glacier_test.input']
+            if encrypt:
+                args.append('--encrypt')
+
+            open_mock = Mock(wraps=open)
+            with patch('__builtin__.open', open_mock):
+                self.run_app(args)
+
+            self.connection.get_vault.assert_called_with('vault_name')
+
+            mock_vault = self.connection.get_vault.return_value
+
+            call_args = mock_vault.create_archive_from_file.call_args
+            uploaded_name = call_args[1]['file_obj'].name
+            if encrypt:
+                nose.tools.assert_equals(uploaded_name.find(gettempdir()), 0)
+            else:
+                nose.tools.assert_equals(uploaded_name, 'glacier_test.input')
+
+            nose.tools.assert_equals(call_args[1]['description'],
+                                     'glacier_test.input')
+
+    def test_archive_upload_concurrent(self):
+        for encrypt in (False, True):
+            args = ['archive', 'upload', 'vault_name', 'glacier_test.input',
+                    '--name', 'glacier_test.input',
+                    '--concurrent']
+            if encrypt:
+                args.append('--encrypt')
+
+            open_mock = Mock(wraps=open)
+            upload_mock = Mock(return_value='fake_archive_id')
+            with patch('__builtin__.open', open_mock), \
+                 patch('boto.glacier.concurrent.ConcurrentUploader.upload',
+                       upload_mock):
+                self.run_app(args)
+
+            self.connection.get_vault.assert_called_with('vault_name')
+            call_args = upload_mock.call_args
+            if encrypt:
+                nose.tools.assert_equals(call_args[0][0].find(gettempdir()), 0)
+            else:
+                nose.tools.assert_equals(call_args[0][0], 'glacier_test.input')
+            nose.tools.assert_equals(call_args[1]['description'],
+                                     'glacier_test.input')
 
     def test_archive_stdin_upload(self):
-        self.run_app(['archive', 'upload', 'vault_name', '-'])
-        self.connection.get_vault.assert_called_once_with('vault_name')
-        vault = self.connection.get_vault.return_value
-        vault.create_archive_from_file.assert_called_once_with(
-            file_obj=sys.stdin, description='<stdin>')
+        for concurrent in (False, True):
+            for encrypt in (False, True):
+                args = ['archive', 'upload', 'vault_name', '-']
+                if concurrent:
+                    args.append('--concurrent')
+                if encrypt:
+                    args.append('--encrypt')
+                if concurrent or encrypt:
+                    # NOTE: concurrency and encryption are not
+                    # currently supported when streaming fron stdin.
+                    nose.tools.assert_raises(Exception,
+                                             self.run_app, args)
+                else:
+                    self.run_app(args)
+                    self.connection.get_vault.assert_called_once_with(
+                        'vault_name'
+                    )
+                    vault = self.connection.get_vault.return_value
+                    vault.create_archive_from_file.assert_called_once_with(
+                        file_obj=sys.stdin, description='<stdin>')
 
     def test_archive_retrieve_no_job(self):
         self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])
