@@ -797,7 +797,6 @@ class App(object):
         archive_retrieve_subparser.add_argument(
             '--decrypt', default=False, action="store_true")
 
-
         # Delete command
         archive_delete_subparser = archive_subparser.add_parser('delete')
         archive_delete_subparser.set_defaults(func=self.archive_delete)
