@@ -717,7 +717,6 @@ class App(object):
 
         print(self.args.name)
 
-
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default=DEFAULT_REGION)
@@ -825,11 +824,11 @@ class App(object):
             and parsed.file is sys.stdin):
                 if parsed.concurrent:
                     raise ConsoleError(
-                        "concurrent uploads do not support streaming from stdin"
+                        "concurrent uploads do not support streaming stdin"
                     )
                 if parsed.encrypt:
                     raise ConsoleError(
-                        "encrypted uploads do not support streaming from stdin"
+                        "encrypted uploads do not support streaming stdin"
                     )
 
         return parsed
