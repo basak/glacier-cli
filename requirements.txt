@@ -1,5 +1,5 @@
 --index-url http://pypi.counsyl.com/counsyl/prod/+simple/
-SQLAlchemy==0.8.4
+SQLAlchemy>=0.8.4
 boto==2.19.0
 iso8601==0.1.8
 python-gnupg==0.3.5
