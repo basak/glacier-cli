@@ -1,6 +1,6 @@
 --index-url http://pypi.counsyl.com/counsyl/prod/+simple/
 
-counsyl-codequality==0.2.2
+codequality==0.2.2.vcounsyl
 mock==1.0.1
 nose==1.2.1
 pep8==1.4.4
