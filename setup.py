@@ -3,7 +3,7 @@ from pip.req import parse_requirements
 
 setup(
     name='counsyl-glacier-cli',
-    version='0.1.0',
+    version='0.1.1.alpha',
     author='Counsyl',
     author_email='root@counsyl.com',
     maintainer='Counsyl',
