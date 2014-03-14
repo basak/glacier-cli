@@ -69,13 +69,13 @@ _(content successfully retrieved from Glacier)_
 Example without git-annex
 -------------------------
 
-    $ glacier vault list
+    $ glacier vaults list
 _(empty result with zero exit status)_
 
-    $ glacier vault create example-vault
+    $ glacier vaults create example-vault
 _(silently successful: like other Unix commands, only errors are noisy)_
 
-    $ glacier vault list
+    $ glacier vaults list
     example-vault
 _(this list is retrieved from Glacier; a relatively quick operation)_
 
@@ -207,9 +207,9 @@ option to `glacier checkpresent`.
 Commands
 --------
 
-* <code>glacier vault list</code>
-* <code>glacier vault create <em>vault-name</em></code>
-* <code>glacier vault sync [--wait] [--fix] [--max-age <em>hours</em>] <em>vault-name</em></code>
+* <code>glacier vaults list</code>
+* <code>glacier vaults create <em>vault-name</em></code>
+* <code>glacier vaults sync [--wait] [--fix] [--max-age <em>hours</em>] <em>vault-name</em></code>
 * <code>glacier archive list <em>vault-name</em></code>
 * <code>glacier archive upload [--name <em>archive-name</em>] <em>vault-name</em> <em>filename</em></code>
 * <code>glacier archive retrieve [--wait] [-o <em>filename</em>] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em></code>
