@@ -139,8 +139,9 @@ Integration with git-annex
 Using glacier-cli via [git-annex][git-annex] is the easiest way to use Amazon
 Glacier from the CLI.
 
-git-annex now has native glacier-cli integration. See the [git-annex Glacier
-documentation](http://git-annex.branchable.com/tips/using_Amazon_Glacier/)
+git-annex now has native glacier-cli integration.  See the [git-annex Glacier
+documentation](http://git-annex.branchable.com/special_remotes/glacier/) and
+[tutorial](http://git-annex.branchable.com/tips/using_Amazon_Glacier/)
 for details.
 
 You probably want to set git-annex to only use glacier as a last resort in
