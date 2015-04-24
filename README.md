@@ -143,6 +143,26 @@ git-annex now has native glacier-cli integration. See the [git-annex Glacier
 documentation](http://git-annex.branchable.com/tips/using_Amazon_Glacier/)
 for details.
 
+You probably want to set git-annex to only use glacier as a last resort in
+order to control your costs:
+
+    git config remote.glacier.annex-cost 1000
+
+Copying to the remote works as normal. Retrieving from the remote initially
+fails after a job is queued. If you try again after the job is complete
+(usually around four hours), then retrieval should work successfully. You can
+monitor the status of the jobs using `glacier job list`; when the job status
+changes from `p` (pending) to `d` (done), a retrieval should work. Note that
+jobs expire from Amazon Glacier after around 24 hours or so.
+
+`glacier checkpresent` cannot always check for certain that an archive
+definitely exists within Glacier. Vault inventories take hours to retrieve,
+and even when retrieved do not necessarily represent an up-to-date state. For
+this reason and as a compromise, `glacier checkpresent` will confirm to
+git-annex that an archive exists if it is known to have existed less than 60
+hours ago. You may override this permitted lag interval with the `--max-age`
+option to `glacier checkpresent`.
+
 Commands
 --------
 
