@@ -72,7 +72,7 @@ def mkdir_p(path):
     """Create path if it doesn't exist already"""
     try:
         os.makedirs(path)
-    except OSError, e:
+    except OSError as e:
         if e.errno != errno.EEXIST:
             raise
 
@@ -519,7 +519,7 @@ class App(object):
         # even if the file existed before and was longer.
         try:
             f.truncate(job.archive_size)
-        except IOError, e:
+        except IOError as e:
             # Allow ESPIPE, since the "file" couldn't have existed before in
             # this case.
             if e.errno != errno.ESPIPE:
@@ -573,7 +573,7 @@ class App(object):
         for name in self.args.names:
             try:
                 self.archive_retrieve_one(name)
-            except RetryConsoleError, e:
+            except RetryConsoleError as e:
                 retry_list.append(e.message)
             else:
                 success_list.append('retrieved archive %r' % name)
@@ -714,13 +714,13 @@ class App(object):
     def main(self):
         try:
             self.args.func()
-        except RetryConsoleError, e:
+        except RetryConsoleError as e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
             # From sysexits.h:
             #     "temp failure; user is invited to retry"
             sys.exit(75)  # EX_TEMPFAIL
-        except ConsoleError, e:
+        except ConsoleError as e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
             sys.exit(1)
