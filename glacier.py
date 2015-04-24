@@ -180,7 +180,7 @@ class Cache(object):
         else:
             return 'id:' + archive.id
 
-    def _get_archive_list_objects(self, vault):
+    def get_archive_list_objects(self, vault):
         for archive in (
                 self.session.query(self.Archive).
                              filter_by(key=self.key,
@@ -198,7 +198,7 @@ class Cache(object):
 
         for archive_name, archive_iterator in (
                 itertools.groupby(
-                    self._get_archive_list_objects(vault),
+                    self.get_archive_list_objects(vault),
                     lambda archive: archive.name)):
             # Yield self._archive_ref(..., force_id=True) if there is more than
             # one archive with the same name; otherwise use force_id=False.
@@ -214,7 +214,7 @@ class Cache(object):
                     yield force_id(subsequent_archive)
 
     def get_archive_list_with_ids(self, vault):
-        for archive in self._get_archive_list_objects(vault):
+        for archive in self.get_archive_list_objects(vault):
             yield "\t".join([
                 self._archive_ref(archive, force_id=True),
                 "%s" % archive.name,
@@ -469,14 +469,39 @@ class App(object):
                                 wait=self.args.wait)
 
     def archive_list(self):
-        if self.args.force_ids:
-            archive_list = list(self.cache.get_archive_list_with_ids(
-                self.args.vault))
-        else:
-            archive_list = list(self.cache.get_archive_list(self.args.vault))
+        if self.args.verbose:
+            archive_list = list(self.cache.get_archive_list_objects(self.args.vault))
+          
+            # Make the columns line up well and only show enough of 
+            # the id to be unique (kinda like git)
+            name_len = 8
+            id_len = 8
 
-        if archive_list:
-            print(*archive_list, sep="\n")
+            seen_ids = set()
+            for archive in archive_list:
+                name_len = max(name_len, len(archive.name))
+                short_id = archive.id[0:id_len]
+
+                while short_id in seen_ids:
+                    id_len += 1
+                    short_id = archive.id[0:id_len]
+                seen_ids.add(short_id)
+
+            row_format = "%%-%ds    %%-%ds    %%-20s     %%-20s" % (id_len, name_len)
+            print(row_format % ("Id", "Name", "Last Seen", "Created"))
+            for archive in archive_list:
+                last_seen_upstream = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.last_seen_upstream))
+                created_here       = time.strftime("%Y-%m-%d::%H:%M:%S", time.localtime(archive.created_here))
+                print(row_format % (archive.id[0:id_len], archive.name[0:name_len], last_seen_upstream, created_here))
+        else:
+            if self.args.force_ids:
+                archive_list = list(self.cache.get_archive_list_with_ids(
+                    self.args.vault))
+            else:
+                archive_list = list(self.cache.get_archive_list(self.args.vault))
+
+            if archive_list:
+                print(*archive_list, sep="\n")
 
     def archive_upload(self):
         # XXX: "Leading whitespace in archive descriptions is removed."
@@ -494,8 +519,35 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(self.args.vault)
-        archive_id = vault.create_archive_from_file(
-            file_obj=self.args.file, description=name)
+
+        # Basically a copy from boto.glacier.vault, but supports
+        # printing progress
+        if self.args.file == sys.stdin:
+            size = None
+        else:
+            size = os.fstat(self.args.file.fileno()).st_size
+
+        written = 0
+        writer = vault.create_archive_writer(description=name)
+        while True:
+            data = self.args.file.read(boto.glacier.vault.Vault.DefaultPartSize)
+            if not data:
+                break
+            writer.write(data)
+            written += len(data)
+            kb_written = written / 1024
+            if not self.args.quiet:
+                if size > 0:
+                    percent_written = (float(written) / size) * 100.0
+                    sys.stdout.write("\r%3.0f%% %24skB %s" % (percent_written, kb_written, name))
+                else:
+                    sys.stdout.write("\r     %24skB %s" % (kb_written, name))
+                sys.stdout.flush()
+        writer.close()
+        if not self.args.quiet:
+            sys.stdout.write("\n")
+
+        archive_id = writer.get_archive_id()
         self.cache.add_archive(self.args.vault, name, archive_id)
 
     @staticmethod
@@ -611,7 +663,7 @@ class App(object):
                     (last_seen <
                         time.time() - self.args.max_age_hours * 60 * 60))
 
-        if too_old(last_seen):
+        if too_old(last_seen) and self.args.no_sync == False:
             # Not recent enough
             try:
                 self._vault_sync(vault_name=self.args.vault,
@@ -661,6 +713,7 @@ class App(object):
         archive_list_subparser = archive_subparser.add_parser('list')
         archive_list_subparser.set_defaults(func=self.archive_list)
         archive_list_subparser.add_argument('--force-ids', action='store_true')
+        archive_list_subparser.add_argument('--verbose', action='store_true')
         archive_list_subparser.add_argument('vault')
         archive_upload_subparser = archive_subparser.add_parser('upload')
         archive_upload_subparser.set_defaults(func=self.archive_upload)
@@ -668,6 +721,8 @@ class App(object):
         archive_upload_subparser.add_argument('file',
                                               type=argparse.FileType('rb'))
         archive_upload_subparser.add_argument('--name')
+        archive_upload_subparser.add_argument('--quiet',
+                                              action='store_true')
         archive_retrieve_subparser = archive_subparser.add_parser('retrieve')
         archive_retrieve_subparser.set_defaults(func=self.archive_retrieve)
         archive_retrieve_subparser.add_argument('vault')
@@ -688,6 +743,8 @@ class App(object):
                 func=self.archive_checkpresent)
         archive_checkpresent_subparser.add_argument('vault')
         archive_checkpresent_subparser.add_argument('name')
+        archive_checkpresent_subparser.add_argument('--no-sync',
+                                                    action='store_true')
         archive_checkpresent_subparser.add_argument('--wait',
                                                     action='store_true')
         archive_checkpresent_subparser.add_argument('--quiet',
@@ -713,7 +770,11 @@ class App(object):
 
     def main(self):
         try:
-            self.args.func()
+            status = self.args.func()
+            if status == None:
+                sys.exit(0)
+            else:
+                sys.exit(status)
         except RetryConsoleError, e:
             message = insert_prefix_to_lines(PROGRAM_NAME + ': ', e.message)
             print(message, file=sys.stderr)
