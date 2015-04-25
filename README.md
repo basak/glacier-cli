@@ -114,6 +114,12 @@ Before you use Amazon Glacier, you should make yourself familiar with [how much
 it costs](http://aws.amazon.com/glacier/pricing/). Note that archive retrieval
 costs are complicated and [may be a lot more than you
 expect](http://www.daemonology.net/blog/2012-09-04-thoughts-on-glacier-pricing.html).
+Files are uploaded in chunks, so uploading an archive can cause many
+requests.  The default size of the parts is determined by the boto library;
+check `DefaultPartSize` in
+[the documentation](http://boto.readthedocs.org/en/latest/ref/glacier.html#module-boto.glacier.vault).  [Changes have been proposed to this tool in order to allow the user
+to specify the chunk size, but they have not been merged
+yet.](https://github.com/basak/glacier-cli/pull/24)
 
 Installation
 ------------
