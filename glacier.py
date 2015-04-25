@@ -48,7 +48,7 @@ import sqlalchemy.orm
 # uploaded successfully.
 INVENTORY_LAG = 24 * 60 * 60 * 3
 
-PROGRAM_NAME = 'glacier'
+PROGRAM_NAME = 'glcr'
 
 class ConsoleError(RuntimeError):
     def __init__(self, m):

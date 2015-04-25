@@ -19,6 +19,6 @@ keep=$(mktemp list-duplicates.XXXXXXXXXX)
 
 trap "rm -f -- '$all' '$keep'" EXIT
 
-glacier archive list --force-ids "$vault"|sort -k2|uniq -f1 -D > "$all"
+glcr archive list --force-ids "$vault"|sort -k2|uniq -f1 -D > "$all"
 uniq -f1 < "$all" | cut -f1 | sort > "$keep"
 cut -f1 < "$all" | sort | comm -23 - "$keep"
