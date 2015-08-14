@@ -40,6 +40,8 @@ import sqlalchemy.ext.declarative
 import sqlalchemy.orm
 
 
+__version__ = '0.1.0'
+
 # There is a lag between an archive being created and the archive
 # appearing on an inventory. Even if the inventory has an InventoryDate
 # of after the archive was created, it still doesn't necessarily appear.

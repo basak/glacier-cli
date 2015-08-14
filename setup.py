@@ -29,7 +29,7 @@ tests_require = read_requirements("requirements-tests.txt")
 
 setup(
     name='glacier-cli',
-    version='0.1.0', #TODO: use find_version('glacier.py')
+    version=find_version('glacier.py'),
     description='A sysadmin-friendly command line interface to Amazon Glacier.',
     long_description=read('README.md'),
     url='https://github.com/basak/glacier-cli',
