@@ -494,6 +494,7 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(self.args.vault)
+        vault.name = str(vault.name)
         archive_id = vault.create_archive_from_file(
             file_obj=self.args.file, description=name)
         self.cache.add_archive(self.args.vault, name, archive_id)
