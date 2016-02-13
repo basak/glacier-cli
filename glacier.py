@@ -728,9 +728,9 @@ class App(object):
             sys.exit(1)
 
 
-def entry_point():
+def main():
     App().main()
 
 
 if __name__ == '__main__':
-    entry_point()
+    main()

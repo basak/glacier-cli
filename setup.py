@@ -60,5 +60,5 @@ setup(
     tests_require=tests_require,
     test_suite = 'nose.collector',
     py_modules=['glacier'],
-    entry_points={'console_scripts': ['glacier-cli=glacier:entry_point']}
+    entry_points={'console_scripts': ['glacier-cli=glacier:main']}
 )
