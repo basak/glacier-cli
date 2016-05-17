@@ -143,30 +143,26 @@ class Cache(object):
                 key=self.key, vault=vault, deleted_here=None, **filter)
 
     def get_archive_id(self, vault, ref):
-        try:
-            result = self._get_archive_query_by_ref(vault, ref).one()
-        except sqlalchemy.orm.exc.NoResultFound:
+        result = self._get_archive_query_by_ref(vault, ref).first()
+        if result is None:
             raise KeyError(ref)
         return result.id
 
     def get_archive_name(self, vault, ref):
-        try:
-            result = self._get_archive_query_by_ref(vault, ref).one()
-        except sqlalchemy.orm.exc.NoResultFound:
+        result = self._get_archive_query_by_ref(vault, ref).first()
+        if result is None:
             raise KeyError(ref)
         return result.name
 
     def get_archive_last_seen(self, vault, ref):
-        try:
-            result = self._get_archive_query_by_ref(vault, ref).one()
-        except sqlalchemy.orm.exc.NoResultFound:
+        result = self._get_archive_query_by_ref(vault, ref).first()
+        if result is None:
             raise KeyError(ref)
         return result.last_seen_upstream or result.created_here
 
     def delete_archive(self, vault, ref):
-        try:
-            result = self._get_archive_query_by_ref(vault, ref).one()
-        except sqlalchemy.orm.exc.NoResultFound:
+        result = self._get_archive_query_by_ref(vault, ref).first()
+        if result is None:
             raise KeyError(name)
         result.deleted_here = time.time()
         self.session.commit()
