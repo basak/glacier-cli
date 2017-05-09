@@ -144,8 +144,10 @@ class Cache(object):
 
     def get_archive_id(self, vault, ref):
         try:
-            result = self._get_archive_query_by_ref(vault, ref).one()
+            result = self._get_archive_query_by_ref(vault, ref).first()
         except sqlalchemy.orm.exc.NoResultFound:
+            raise KeyError(ref)
+        if not result:
             raise KeyError(ref)
         return result.id
 
