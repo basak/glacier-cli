@@ -69,38 +69,38 @@ _(content successfully retrieved from Glacier)_
 Example without git-annex
 -------------------------
 
-    $ glacier vault list
+    $ glcr vault list
 _(empty result with zero exit status)_
 
-    $ glacier vault create example-vault
+    $ glcr vault create example-vault
 _(silently successful: like other Unix commands, only errors are noisy)_
 
-    $ glacier vault list
+    $ glcr vault list
     example-vault
 _(this list is retrieved from Glacier; a relatively quick operation)_
 
-    $ glacier archive list example-vault
+    $ glcr archive list example-vault
 _(empty result with zero exit status; nothing is in our vault yet)_
 
     $ echo 42 > example-content
-    $ glacier archive upload example-vault example-content
+    $ glcr archive upload example-vault example-content
 _(Glacier has now stored example-content in an archive with description
 example-content and in a vault called example-vault)_
 
-    $ glacier archive list example-vault
+    $ glcr archive list example-vault
     example-content
 _(this happens instantly, since glacier-cli maintains a cached inventory)_
 
     $ rm example-content
 _(now the only place the content is stored is in Glacier)_
 
-    $ glacier archive retrieve example-vault example-content
-    glacier: queued retrieval job for archive 'example-content'
-    $ glacier archive retrieve example-vault example-content
-    glacier: job still pending for archive 'example-content'
-    $ glacier job list
+    $ glcr archive retrieve example-vault example-content
+    glcr: queued retrieval job for archive 'example-content'
+    $ glcr archive retrieve example-vault example-content
+    glcr: job still pending for archive 'example-content'
+    $ glcr job list
     a/p 2012-09-19T21:41:35.238Z example-vault example-content
-    $ glacier archive retrieve --wait example-vault example-content
+    $ glcr archive retrieve --wait example-vault example-content
 _(...hours pass while Amazon retrieves the content...)_
 
     $ cat example-content
@@ -133,11 +133,11 @@ Then clone this repository:
 
 and either, for all users:
 
-    sudo ln -s $PWD/glacier-cli/glacier.py /usr/local/bin/glacier
+    sudo ln -s $PWD/glacier-cli/glacier.py /usr/local/bin/glcr
 
 or for just yourself, if you have `~/bin` in your path:
 
-    ln -s $PWD/glacier-cli/glacier.py ~/bin/glacier
+    ln -s $PWD/glacier-cli/glacier.py ~/bin/glcr
 
 Integration with git-annex
 --------------------------
@@ -158,30 +158,30 @@ order to control your costs:
 Copying to the remote works as normal. Retrieving from the remote initially
 fails after a job is queued. If you try again after the job is complete
 (usually around four hours), then retrieval should work successfully. You can
-monitor the status of the jobs using `glacier job list`; when the job status
+monitor the status of the jobs using `glcr job list`; when the job status
 changes from `p` (pending) to `d` (done), a retrieval should work. Note that
 jobs expire from Amazon Glacier after around 24 hours or so.
 
-`glacier checkpresent` cannot always check for certain that an archive
+`glcr checkpresent` cannot always check for certain that an archive
 definitely exists within Glacier. Vault inventories take hours to retrieve,
 and even when retrieved do not necessarily represent an up-to-date state. For
-this reason and as a compromise, `glacier checkpresent` will confirm to
+this reason and as a compromise, `glcr checkpresent` will confirm to
 git-annex that an archive exists if it is known to have existed less than 60
 hours ago. You may override this permitted lag interval with the `--max-age`
-option to `glacier checkpresent`.
+option to `glcr checkpresent`.
 
 Commands
 --------
 
-* <code>glacier vault list</code>
-* <code>glacier vault create <em>vault-name</em></code>
-* <code>glacier vault sync [--wait] [--fix] [--max-age <em>hours</em>] <em>vault-name</em></code>
-* <code>glacier archive list <em>vault-name</em></code>
-* <code>glacier archive upload [--name <em>archive-name</em>] <em>vault-name</em> <em>filename</em></code>
-* <code>glacier archive retrieve [--wait] [-o <em>filename</em>] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em></code>
-* <code>glacier archive retrieve [--wait] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em> [<em>archive-name</em>...]</code>
-* <code>glacier archive delete <em>vault-name</em> <em>archive-name</em></code>
-* <code>glacier job list</code>
+* <code>glcr vault list</code>
+* <code>glcr vault create <em>vault-name</em></code>
+* <code>glcr vault sync [--wait] [--fix] [--max-age <em>hours</em>] <em>vault-name</em></code>
+* <code>glcr archive list <em>vault-name</em></code>
+* <code>glcr archive upload [--name <em>archive-name</em>] <em>vault-name</em> <em>filename</em></code>
+* <code>glcr archive retrieve [--wait] [-o <em>filename</em>] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em></code>
+* <code>glcr archive retrieve [--wait] [--multipart-size <em>bytes</em>] <em>vault-name</em> <em>archive-name</em> [<em>archive-name</em>...]</code>
+* <code>glcr archive delete <em>vault-name</em> <em>archive-name</em></code>
+* <code>glcr job list</code>
 
 Delayed Completion
 ------------------
@@ -216,7 +216,7 @@ and keeps its cache in `${XDG_CACHE_HOME:-$HOME/.cache}/glacier-cli/db`.
 After a disaster, or if you have modified a vault from another machine, you can
 reconstruct your cache by running:
 
-    $ glacier vault sync example-vault
+    $ glcr vault sync example-vault
 
 This will set off an inventory job if required. This command is subject to
 delayed completion semantics as above but will also respond to `--wait` as
@@ -260,11 +260,11 @@ expect. If you end up with archive names or IDs that start with `name:` or
 Using Pipes
 -----------
 
-Use `glacier archive upload <vault> --name=<name> - ` to upload data from
+Use `glcr archive upload <vault> --name=<name> - ` to upload data from
 standard input. In this case you must use `--name` to name your archive
 correctly.
 
-Use `glacier archive retrieve <vault> <name> -o-` to download data to standard
+Use `glcr archive retrieve <vault> <name> -o-` to download data to standard
 output. glacier-cli will not output any data to standard output apart from the
 archive data in order to prevent corrupting the output data stream.
 
