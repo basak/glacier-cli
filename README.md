@@ -69,25 +69,25 @@ _(content successfully retrieved from Glacier)_
 Example without git-annex
 -------------------------
 
-    $ glacier vault list
+    $ glacier-cli vault list
 _(empty result with zero exit status)_
 
-    $ glacier vault create example-vault
+    $ glacier-cli vault create example-vault
 _(silently successful: like other Unix commands, only errors are noisy)_
 
-    $ glacier vault list
+    $ glacier-cli vault list
     example-vault
 _(this list is retrieved from Glacier; a relatively quick operation)_
 
-    $ glacier archive list example-vault
+    $ glacier-cli archive list example-vault
 _(empty result with zero exit status; nothing is in our vault yet)_
 
     $ echo 42 > example-content
-    $ glacier archive upload example-vault example-content
+    $ glacier-cli archive upload example-vault example-content
 _(Glacier has now stored example-content in an archive with description
 example-content and in a vault called example-vault)_
 
-    $ glacier archive list example-vault
+    $ glacier-cli archive list example-vault
     example-content
 _(this happens instantly, since glacier-cli maintains a cached inventory)_
 
@@ -127,17 +127,21 @@ Installation
 First ensure that [`boto`](https://github.com/boto/boto/) is installed
 on your system.
 
-Then clone this repository:
+Then you can install glacier-cli using pip, either for the system interpeter or in a virtualenv:
+
+    pip install git+https://github.com/basak/glacier-cli.git
+
+or you can use git to clone this repository:
 
     git clone git://github.com/basak/glacier-cli.git
 
-and either, for all users:
+and and then manually link the glacier-cli executable script for all users:
 
-    sudo ln -s $PWD/glacier-cli/glacier.py /usr/local/bin/glacier
+    sudo ln -s $PWD/glacier-cli/glacier.py /usr/local/bin/glacier-cli
 
 or for just yourself, if you have `~/bin` in your path:
 
-    ln -s $PWD/glacier-cli/glacier.py ~/bin/glacier
+    ln -s $PWD/glacier-cli/glacier.py ~/bin/glacier-cli
 
 Integration with git-annex
 --------------------------
