@@ -495,6 +495,10 @@ class App(object):
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
 
+        if sys.version_info[0] == 3:
+            # python3 reading from sys.stdin requires the .buffer
+            self.args.file = self.args.file.buffer
+
         vault = self.connection.get_vault(self.args.vault)
         archive_id = vault.create_archive_from_file(
             file_obj=self.args.file, description=name)
