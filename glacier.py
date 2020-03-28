@@ -496,8 +496,14 @@ class App(object):
             name = os.path.basename(full_name)
 
         vault = self.connection.get_vault(self.args.vault)
+        file_obj = self.args.file
+        if 'b' not in file_obj.mode and sys.version_info[0] == 3:
+            # Workaround for argparse.FileType not fulfilling requested
+            # binary mode for stdin (file '-') in Python 3 (issue #74).
+            # Also see https://bugs.python.org/issue14156
+            file_obj = file_obj.buffer
         archive_id = vault.create_archive_from_file(
-            file_obj=self.args.file, description=name)
+            file_obj=file_obj, description=name)
         self.cache.add_archive(self.args.vault, name, archive_id)
 
     @staticmethod
