@@ -124,20 +124,70 @@ yet.](https://github.com/basak/glacier-cli/pull/24)
 Installation
 ------------
 
-First ensure that [`boto`](https://github.com/boto/boto/) is installed
-on your system.
+glacier-cli and its dependencies are pure Python packages
+and it should be straightforward to install them on a system with
+standard Python tools.
+It was originally developed for Python 2, but it is possible to
+get it working with Python 3 too.
 
-Then clone this repository:
 
-    git clone git://github.com/basak/glacier-cli.git
+### Installation with `pip`
 
-and either, for all users:
+It is recommended (but not required) to install glacier-cli
+in a virtual environment (e.g. using something like
+[`virtualenv`](https://virtualenv.pypa.io/en/latest/),
+[`venv`](https://docs.python.org/3/library/venv.html),
+[`conda`](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html),
+...).
+This allows managing glacier-cli and its dependencies
+in isolation and avoids conflicts with other packages and tools.
 
-    sudo ln -s $PWD/glacier-cli/glacier.py /usr/local/bin/glacier
+These virtual environment systems come with `pip`
+(the standard Python package manger) out of the box,
+which is the easiest way to install glacier-cli including
+its dependencies.
+If you don't use a virtual environment, it is still recommended
+to at least use `pip`.
 
-or for just yourself, if you have `~/bin` in your path:
+Install glacier-cli using `pip` (preferably in a virtual environment)
+with one of these methods:
 
-    ln -s $PWD/glacier-cli/glacier.py ~/bin/glacier
+- Installation from source: make a local clone of this repository and install it:
+
+        git clone git://github.com/basak/glacier-cli.git
+        cd glacier-cli
+        pip install .
+
+- Installation directly from GitHub repo:
+
+        pip install git+https://github.com/basak/glacier-cli.git
+
+
+### Symlinks
+
+The installation through pip will also create
+a command line tool `glacier-cli` in the `bin` folder
+of the virtual environment.
+However, you probably want to be able to use it without first
+activating the virtual environment.
+Also, if you want to use it with `git-annex` (see lower), it should be
+available under the name `glacier` in your `PATH`.
+
+Create appropriate symlinks to achieve this.
+The details of this largely depend on your setup or workflow,
+but here are some examples as inspiration
+(to be executed from within the virtual environment):
+
+- if `~/bin` is in your `PATH`:
+
+        ln -s $(which glacier-cli) ~/bin/glacier
+
+- to make it available globally to all users:
+
+        sudo ln -s $(which glacier-cli) /usr/local/bin/glacier
+
+
+
 
 Integration with git-annex
 --------------------------
