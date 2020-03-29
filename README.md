@@ -328,7 +328,3 @@ Contact
 
 * For bugs or feature requests please create a [glacier-cli github
   issue](https://github.com/basak/glacier-cli/issues).
-* Reach me on Twitter: [@robiebasak](https://twitter.com/robiebasak), but
-  please tweet me an email address (or a [reCAPTCHA
-  mailhide](http://www.google.com/recaptcha/mailhide/) URL, or some other way
-  for me to reply) if my reply is likely to take more than 140 characters!
