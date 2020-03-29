@@ -108,6 +108,7 @@ class TestCase(unittest.TestCase):
     def test_archive_upload(self):
         file_obj = Mock()
         file_obj.name = 'filename'
+        file_obj.mode = 'rb'
         open_mock = Mock(return_value=file_obj)
         with patch('__builtin__.open', open_mock):
             self.run_app(['archive', 'upload', 'vault_name', 'filename'])
