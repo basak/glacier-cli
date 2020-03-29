@@ -35,6 +35,14 @@ import glacier
 
 EX_TEMPFAIL = 75
 
+PY2 = (sys.version_info[0] == 2)
+
+
+def patch_builtin(name, *args, **kwargs):
+    """Helper to patch builtins easily for py2 and py3"""
+    target = '{b}.{n}'.format(b='__builtin__' if PY2 else 'builtins', n=name)
+    return patch(target, *args, **kwargs)
+
 
 class TestCase(unittest.TestCase):
     def init_app(self, args, memory_cache=False):
@@ -58,7 +66,7 @@ class TestCase(unittest.TestCase):
         mock_vault.name = sentinel.vault_name
         self.connection.list_vaults.return_value = [mock_vault]
         print_mock = Mock()
-        with patch('__builtin__.print', print_mock):
+        with patch_builtin('print', print_mock):
             self.app.main()
         print_mock.assert_called_once_with(sentinel.vault_name, sep=u'\n')
 
@@ -71,7 +79,7 @@ class TestCase(unittest.TestCase):
         archive_list = [sentinel.archive_one, sentinel.archive_two]
         self.cache.get_archive_list.return_value = archive_list
         print_mock = Mock()
-        with patch('__builtin__.print', print_mock):
+        with patch_builtin('print', print_mock):
             self.app.main()
         print_mock.assert_called_once_with(*archive_list, sep="\n")
 
@@ -84,7 +92,7 @@ class TestCase(unittest.TestCase):
         self.cache.add_archive('vault_name', 'archive_name_1', 'id_2')
         self.cache.add_archive('vault_name', 'archive_name_3', 'id_3')
         print_mock = Mock()
-        with patch('__builtin__.print', print_mock):
+        with patch_builtin('print', print_mock):
             self.app.main()
 
         # print should have been called with a list of the items in some
@@ -108,8 +116,9 @@ class TestCase(unittest.TestCase):
     def test_archive_upload(self):
         file_obj = Mock()
         file_obj.name = 'filename'
+        file_obj.mode = 'rb'
         open_mock = Mock(return_value=file_obj)
-        with patch('__builtin__.open', open_mock):
+        with patch_builtin('open', open_mock):
             self.run_app(['archive', 'upload', 'vault_name', 'filename'])
         self.connection.get_vault.assert_called_with('vault_name')
         mock_vault = self.connection.get_vault.return_value
@@ -120,8 +129,9 @@ class TestCase(unittest.TestCase):
         self.run_app(['archive', 'upload', 'vault_name', '-'])
         self.connection.get_vault.assert_called_once_with('vault_name')
         vault = self.connection.get_vault.return_value
+        expected_file_obj = sys.stdin if PY2 else sys.stdin.buffer
         vault.create_archive_from_file.assert_called_once_with(
-            file_obj=sys.stdin, description='<stdin>')
+            file_obj=expected_file_obj, description='<stdin>')
 
     def test_archive_retrieve_no_job(self):
         self.init_app(['archive', 'retrieve', 'vault_name', 'archive_name'])
@@ -131,7 +141,7 @@ class TestCase(unittest.TestCase):
         mock_exit = Mock()
         mock_print = Mock()
         with patch('sys.exit', mock_exit):
-            with patch('__builtin__.print', mock_print):
+            with patch_builtin('print', mock_print):
                 self.app.main()
         mock_exit.assert_called_once_with(EX_TEMPFAIL)
         mock_print.assert_called_once_with(
@@ -153,7 +163,7 @@ class TestCase(unittest.TestCase):
         mock_vault.list_jobs.return_value = [mock_job]
         self.connection.get_vault.return_value = mock_vault
         mock_open = mock.mock_open()
-        with patch('__builtin__.open', mock_open):
+        with patch_builtin('open', mock_open):
             self.app.main()
         self.cache.get_archive_id.assert_called_once_with(
             'vault_name', 'archive_name')
