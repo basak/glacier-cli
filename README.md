@@ -1,3 +1,6 @@
+[![Build
+Status](https://travis-ci.org/basak/glacier-cli.svg?branch=master)](https://travis-ci.org/basak/glacier-cli)
+
 glacier-cli
 ===========
 
