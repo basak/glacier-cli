@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # Copyright (c) 2012 Robie Basak
 #
@@ -478,7 +479,11 @@ class App(object):
             archive_list = list(self.cache.get_archive_list(self.args.vault))
 
         if archive_list:
-            print(*archive_list, sep="\n")
+            if self.args.transcode_names:
+              for i in archive_list:
+               print(i.encode(self.args.transcode_names))
+            else:
+               print(*archive_list, sep="\n")
 
     def archive_upload(self):
         # XXX: "Leading whitespace in archive descriptions is removed."
@@ -495,6 +500,8 @@ class App(object):
                 raise RuntimeError('Archive name not specified. Use --name')
             name = os.path.basename(full_name)
 
+        if not isinstance(name, unicode) and self.args.transcode_names:
+            name = name.decode(self.args.transcode_names)
         vault = self.connection.get_vault(self.args.vault)
         file_obj = self.args.file
         if 'b' not in file_obj.mode and sys.version_info[0] == 3:
@@ -563,7 +570,7 @@ class App(object):
                 complete_job = wait_until_job_completed(retrieval_jobs)
                 self._archive_retrieve_completed(self.args, complete_job, name)
             else:
-                raise RetryConsoleError('job still pending for archive %r' % name)
+                raise RetryConsoleError(u'job still pending for archive %s' % name)
         else:
             # create an archive retrieval job
             job = vault.retrieve_archive(archive_id)
@@ -571,7 +578,7 @@ class App(object):
                 wait_until_job_completed([job])
                 self._archive_retrieve_completed(self.args, job, name)
             else:
-                raise RetryConsoleError('queued retrieval job for archive %r' % name)
+                raise RetryConsoleError(u"queued retrieval job for archive %s" % name)
 
     def archive_retrieve(self):
         if len(self.args.names) > 1 and self.args.output_filename:
@@ -579,6 +586,8 @@ class App(object):
         success_list = []
         retry_list = []
         for name in self.args.names:
+            if self.args.transcode_names:
+                name = name.decode(self.args.transcode_names)
             try:
                 self.archive_retrieve_one(name)
             except RetryConsoleError as e:
@@ -591,13 +600,16 @@ class App(object):
 
     def archive_delete(self):
         try:
+            name = self.args.name
+            if self.args.transcode_names:
+                name = name.decode(self.args.transcode_names)
             archive_id = self.cache.get_archive_id(
-                self.args.vault, self.args.name)
+                self.args.vault, name)
         except KeyError:
-            raise ConsoleError('archive %r not found' % self.args.name)
+            raise ConsoleError('archive %r not found' % name)
         vault = self.connection.get_vault(self.args.vault)
         vault.delete_archive(archive_id)
-        self.cache.delete_archive(self.args.vault, self.args.name)
+        self.cache.delete_archive(self.args.vault, name)
 
     def archive_checkpresent(self):
         try:
@@ -652,6 +664,8 @@ class App(object):
     def parse_args(self, args=None):
         parser = argparse.ArgumentParser()
         parser.add_argument('--region', default='us-east-1')
+        parser.add_argument('--transcode-names', metavar='CODEC',
+            help='encode name to CODEC before sending to Amazon, and decode from CODEC when retrieving')
         subparsers = parser.add_subparsers()
         vault_subparser = subparsers.add_parser('vault').add_subparsers()
         vault_subparser.add_parser('list').set_defaults(func=self.vault_list)
