@@ -527,17 +527,18 @@ class App(object):
         # even if the file existed before and was longer.
         try:
             f.truncate(job.archive_size)
-        except IOError as e:
+        except OSError as e:
             # Allow ESPIPE, since the "file" couldn't have existed before in
-            # this case.
-            if e.errno != errno.ESPIPE:
+            # this case. Modern Pythons return EINVAL for
+            # sys.stdout.buffer.truncate(val)
+            if e.errno not in [errno.ESPIPE, errno.EINVAL]:
                 raise
 
     @classmethod
     def _archive_retrieve_completed(cls, args, job, name):
         if args.output_filename == '-':
             cls._write_archive_retrieval_job(
-                sys.stdout, job, args.multipart_size)
+                sys.stdout.buffer, job, args.multipart_size)
         else:
             if args.output_filename:
                 filename = args.output_filename
